@@ -26,7 +26,7 @@ print_warning() {
 # Clean previous builds
 print_status "Cleaning previous builds..."
 cargo clean
-rm -f phpcs-lsp-server extension.wasm
+rm -f bin/phpcs-lsp-server extension.wasm
 
 # Build LSP server
 print_status "Building LSP server..."
@@ -34,12 +34,13 @@ cd lsp-server
 cargo build --release
 cd ..
 
-# Copy LSP server binary to extension root
-print_status "Copying LSP server binary..."
+# Copy LSP server binary to bin folder
+print_status "Copying LSP server binary to bin folder..."
 if [ -f "lsp-server/target/release/phpcs-lsp-server" ]; then
-    cp lsp-server/target/release/phpcs-lsp-server ./phpcs-lsp-server
-    chmod +x ./phpcs-lsp-server
-    print_success "LSP server binary copied"
+    mkdir -p bin
+    cp lsp-server/target/release/phpcs-lsp-server bin/phpcs-lsp-server
+    chmod +x bin/phpcs-lsp-server
+    print_success "LSP server binary copied to bin/"
 else
     echo "Error: LSP server binary not found!"
     exit 1
@@ -72,11 +73,22 @@ fi
 ZED_WORK_DIR="$HOME/Library/Application Support/Zed/extensions/work/phpcs-lsp"
 if [ -d "$ZED_WORK_DIR" ]; then
     print_status "Copying to Zed work directory for development..."
-    cp lsp-server/target/release/phpcs-lsp-server "$ZED_WORK_DIR/phpcs-lsp-server"
-    chmod +x "$ZED_WORK_DIR/phpcs-lsp-server"
     
+    # Copy extension.wasm
+    if [ -f "extension.wasm" ]; then
+        cp extension.wasm "$ZED_WORK_DIR/"
+    fi
+    
+    # Copy extension.toml
+    if [ -f "extension.toml" ]; then
+        cp extension.toml "$ZED_WORK_DIR/"
+    fi
+    
+    # Copy bin directory
     if [ -d "bin" ]; then
         cp -r bin "$ZED_WORK_DIR/"
+        chmod +x "$ZED_WORK_DIR/bin/phpcs-lsp-server"
+        print_status "Copied bin/ directory with LSP server and PHPCS binaries"
     fi
     
     print_success "Development files copied to Zed work directory"
@@ -88,7 +100,7 @@ echo
 print_success "Build complete!"
 echo
 echo "📦 Generated files:"
-echo "  - LSP server: phpcs-lsp-server"
+echo "  - LSP server: bin/phpcs-lsp-server"
 echo "  - Extension WASM: extension.wasm"
 echo "  - PHPCS binaries: bin/"
 echo

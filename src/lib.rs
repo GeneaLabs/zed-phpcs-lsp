@@ -19,7 +19,7 @@ impl PhpcsLspServer {
         _language_server_id: &zed::LanguageServerId,
         _worktree: &zed::Worktree,
     ) -> Result<String> {
-        Ok("phpcs-lsp-server".to_string())
+        Ok("bin/phpcs-lsp-server".to_string())
     }
 }
 

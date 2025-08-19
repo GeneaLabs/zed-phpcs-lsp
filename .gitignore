@@ -5,9 +5,7 @@ target/
 # LSP server build artifacts  
 lsp-server/target/
 
-# Built binaries (will be built during CI/installation)
-phpcs-lsp-server
-extension.wasm
+# Built binaries (removed - these are deliverables users need)
 
 # IDE and editor files
 .vscode/
@@ -32,5 +30,4 @@ __pycache__/
 .ropeproject/
 .claude/
 
-# Bundled PHPCS PHAR files
-bin/
+# Bundled PHPCS PHAR files (removed - now committing bin/ folder)
