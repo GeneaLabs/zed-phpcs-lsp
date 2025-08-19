@@ -1,2 +1,0 @@
-#!/bin/bash
-php "$(dirname "$0")/phpcbf.phar" "$@"
