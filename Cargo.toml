@@ -1,0 +1,18 @@
+[package]
+name = "phpcs-lsp"
+version = "0.1.0"
+edition = "2021"
+authors = ["Test Author <test@example.com>"]
+description = "PHP CodeSniffer Language Server extension for Zed"
+license = "MIT"
+repository = "https://github.com/your-username/zed-phpcs-lsp"
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.wasm32-wasip1]
+
+[dependencies]
+zed_extension_api = "0.6.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
