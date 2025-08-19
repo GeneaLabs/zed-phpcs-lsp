@@ -29,7 +29,19 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 
 ### Basic Usage
 
-Open any PHP project in Zed and the extension will start analyzing your code:
+1. **Enable the language server** in your Zed settings.json:
+
+```json
+{
+  "languages": {
+    "PHP": {
+      "language_servers": ["intelephense", "phpcs"]
+    }
+  }
+}
+```
+
+2. **Open any PHP project** and the extension will start analyzing your code:
 
 ```php
 <?php
@@ -68,7 +80,7 @@ Configure standards in your `settings.json`:
 ```json
 {
   "lsp": {
-    "phpcs-lsp-server": {
+    "phpcs": {
       "settings": {
         "standard": "PSR12"
       }
@@ -81,7 +93,7 @@ Configure standards in your `settings.json`:
 ```json
 {
   "lsp": {
-    "phpcs-lsp-server": {
+    "phpcs": {
       "settings": {
         "standard": ["PSR12", "Squiz.Commenting"]
       }
@@ -94,7 +106,7 @@ Configure standards in your `settings.json`:
 ```json
 {
   "lsp": {
-    "phpcs-lsp-server": {
+    "phpcs": {
       "settings": {
         "standard": "./custom-phpcs.xml"
       }
@@ -137,7 +149,7 @@ Specify custom PHPCS/PHPCBF paths in settings.json:
 ```json
 {
   "lsp": {
-    "phpcs-lsp-server": {
+    "phpcs": {
       "settings": {
         "phpcsPath": "/custom/path/to/phpcs",
         "phpcbfPath": "/custom/path/to/phpcbf"
@@ -210,9 +222,9 @@ zed-phpcs-lsp/
 
 Contributions are welcome! Please feel free to:
 
-- Report bugs or request features via [GitHub Issues](https://github.com/mikebronner/zed-phpcs-lsp/issues)
+- Report bugs or request features via [GitHub Issues](https://github.com/GeneaLabs/zed-phpcs-lsp/issues)
 - Submit pull requests for improvements
-- Share feedback in [Discussions](https://github.com/mikebronner/zed-phpcs-lsp/discussions)
+- Share feedback in [Discussions](https://github.com/GeneaLabs/zed-phpcs-lsp/discussions)
 
 ## Troubleshooting
 

@@ -8,7 +8,7 @@ struct PhpcsLspExtension {
 struct PhpcsLspServer;
 
 impl PhpcsLspServer {
-    const LANGUAGE_SERVER_ID: &'static str = "phpcs-lsp-server";
+    const LANGUAGE_SERVER_ID: &'static str = "phpcs";
 
     fn new() -> Self {
         Self

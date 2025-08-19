@@ -1,11 +1,11 @@
 [package]
-name = "phpcs-lsp"
+name = "phpcs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Mike Bronner <mike.bronner@icloud.com>"]
 description = "PHP CodeSniffer Language Server extension for Zed"
 license = "MIT"
-repository = "https://github.com/mikebronner/zed-phpcs-lsp"
+repository = "https://github.com/GeneaLabs/zed-phpcs-lsp"
 
 [lib]
 crate-type = ["cdylib"]
