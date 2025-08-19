@@ -19,11 +19,50 @@ impl PhpcsLspServer {
         _language_server_id: &zed::LanguageServerId,
         _worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
+        let binary_name = Self::get_platform_binary_name();
         Ok(zed::Command {
-            command: "bin/phpcs-lsp-server".to_string(),
+            command: format!("bin/{}", binary_name),
             args: vec![],
             env: Default::default(),
         })
+    }
+
+    fn get_platform_binary_name() -> String {
+        #[cfg(target_os = "windows")]
+        {
+            if cfg!(target_arch = "x86_64") {
+                "phpcs-lsp-server-windows-x64.exe"
+            } else if cfg!(target_arch = "aarch64") {
+                "phpcs-lsp-server-windows-arm64.exe"
+            } else {
+                "phpcs-lsp-server.exe"
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if cfg!(target_arch = "aarch64") {
+                "phpcs-lsp-server-macos-arm64"
+            } else if cfg!(target_arch = "x86_64") {
+                "phpcs-lsp-server-macos-x64"
+            } else {
+                "phpcs-lsp-server"
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if cfg!(target_arch = "x86_64") {
+                "phpcs-lsp-server-linux-x64"
+            } else if cfg!(target_arch = "aarch64") {
+                "phpcs-lsp-server-linux-arm64"
+            } else {
+                "phpcs-lsp-server"
+            }
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        {
+            "phpcs-lsp-server"
+        }
+        .to_string()
     }
 }
 
