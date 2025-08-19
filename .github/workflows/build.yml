@@ -17,6 +17,19 @@ on:
         description: 'Test build without creating release'
         required: false
         default: 'true'
+      update_phpcs:
+        description: 'Update PHPCS PHAR files'
+        required: false
+        default: 'false'
+      phpcs_version:
+        description: 'PHPCS version to update to'
+        required: false
+      phpcs_url:
+        description: 'PHPCS PHAR download URL'
+        required: false
+      phpcbf_url:
+        description: 'PHPCBF PHAR download URL'
+        required: false
 
 permissions:
   contents: write
@@ -62,6 +75,46 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update PHPCS PHAR files
+      if: github.event.inputs.update_phpcs == 'true'
+      run: |
+        echo "Updating PHPCS to version: ${{ github.event.inputs.phpcs_version }}"
+        
+        # Download PHPCS PHAR
+        if [ -n "${{ github.event.inputs.phpcs_url }}" ]; then
+          echo "Downloading PHPCS from: ${{ github.event.inputs.phpcs_url }}"
+          curl -L -o bin/phpcs.phar "${{ github.event.inputs.phpcs_url }}"
+          chmod +x bin/phpcs.phar
+        fi
+        
+        # Download PHPCBF PHAR
+        if [ -n "${{ github.event.inputs.phpcbf_url }}" ]; then
+          echo "Downloading PHPCBF from: ${{ github.event.inputs.phpcbf_url }}"
+          curl -L -o bin/phpcbf.phar "${{ github.event.inputs.phpcbf_url }}"
+          chmod +x bin/phpcbf.phar
+        fi
+        
+        # Verify downloads
+        php bin/phpcs.phar --version
+        php bin/phpcbf.phar --version
+        
+        # Commit PHPCS updates
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        git add bin/phpcs.phar bin/phpcbf.phar
+        
+        if ! git diff --staged --quiet; then
+          git commit -m "chore: 🔧 update PHPCS to ${{ github.event.inputs.phpcs_version }}
+        
+        - Updated bin/phpcs.phar to version ${{ github.event.inputs.phpcs_version }}
+        - Updated bin/phpcbf.phar to version ${{ github.event.inputs.phpcs_version }}
+        
+        Source: https://github.com/squizlabs/PHP_CodeSniffer/releases/tag/${{ github.event.inputs.phpcs_version }}"
+        fi
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -164,7 +217,22 @@ jobs:
         if git diff --staged --quiet; then
           echo "No changes to binaries"
         else
-          git commit -m "build: 🤖 update LSP server binaries for all platforms.
+          # Include PHPCS version in commit message if this was a PHPCS update
+          if [ "${{ github.event.inputs.update_phpcs }}" = "true" ]; then
+            git commit -m "build: 🤖 update LSP server binaries and PHPCS to ${{ github.event.inputs.phpcs_version }}
+
+        Built from commit: ${{ github.sha }}
+
+        Updates:
+        - LSP server binaries for all platforms
+        - PHPCS PHAR files to version ${{ github.event.inputs.phpcs_version }}
+
+        Platforms:
+        - Linux x64 & ARM64
+        - macOS x64 & ARM64
+        - Windows x64 & ARM64"
+          else
+            git commit -m "build: 🤖 update LSP server binaries for all platforms
 
         Built from commit: ${{ github.sha }}
 
@@ -172,6 +240,7 @@ jobs:
         - Linux x64 & ARM64
         - macOS x64 & ARM64
         - Windows x64 & ARM64"
+          fi
 
           git push
         fi
