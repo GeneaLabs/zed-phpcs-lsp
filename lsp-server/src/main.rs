@@ -152,6 +152,7 @@ impl PhpcsLanguageServer {
         let msg = message.get("message")?.as_str()?;
         let severity_str = message.get("type")?.as_str()?;
         let source = message.get("source")?.as_str().unwrap_or("");
+        let fixable = message.get("fixable")?.as_bool().unwrap_or(false);
 
         let severity = match severity_str {
             "ERROR" => DiagnosticSeverity::ERROR,
@@ -224,16 +225,31 @@ impl PhpcsLanguageServer {
             }
         };
 
+        // Create enhanced source with standard information
+        let enhanced_source = "phpcs".to_string();
+
+
+        // Store additional data for potential future features
+        let data = serde_json::json!({
+            "fixable": fixable,
+            "phpcs_source": source,
+            "phpcs_severity": message.get("severity")
+        });
+
         Some(Diagnostic {
             range,
             severity: Some(severity),
-            code: None,
-            source: Some("phpcs".to_string()),
+            code: if !source.is_empty() { 
+                Some(NumberOrString::String(source.to_string())) 
+            } else { 
+                None 
+            },
+            source: Some(enhanced_source),
             message: msg.to_string(),
             related_information: None,
             tags: None,
             code_description: None,
-            data: None,
+            data: Some(data),
         })
     }
 

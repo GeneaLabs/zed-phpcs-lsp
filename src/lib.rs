@@ -1,15 +1,33 @@
 use zed_extension_api::{self as zed, Result};
-use std::{env, fs};
+use std::env;
 
 struct PhpcsLspExtension {
-    cached_binary_path: Option<String>,
+    phpcs_lsp: Option<PhpcsLspServer>,
+}
+
+struct PhpcsLspServer;
+
+impl PhpcsLspServer {
+    const LANGUAGE_SERVER_ID: &'static str = "phpcs-lsp-server";
+
+    fn new() -> Self {
+        Self
+    }
+
+    fn language_server_binary_path(
+        &self,
+        _language_server_id: &zed::LanguageServerId,
+        _worktree: &zed::Worktree,
+    ) -> Result<String> {
+        Ok("phpcs-lsp-server".to_string())
+    }
 }
 
 impl zed::Extension for PhpcsLspExtension {
     fn new() -> Self {
         eprintln!("🚀 PHPCS LSP Extension: new() called - extension is loading!");
         Self {
-            cached_binary_path: None,
+            phpcs_lsp: None,
         }
     }
 
@@ -18,34 +36,18 @@ impl zed::Extension for PhpcsLspExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let language_server_id = language_server_id.as_ref();
-        eprintln!("🚀 PHPCS LSP: language_server_command called with ID: {}", language_server_id);
-        eprintln!("🚀 PHPCS LSP: worktree path: {:?}", worktree.root_path());
-        
-        if language_server_id != "phpcs-lsp-server" {
-            eprintln!("PHPCS LSP: Unknown language server ID: {}", language_server_id);
-            return Err(format!("Unknown language server: {}", language_server_id).into());
-        }
+        match language_server_id.as_ref() {
+            PhpcsLspServer::LANGUAGE_SERVER_ID => {
+                let phpcs_lsp = self.phpcs_lsp.get_or_insert_with(PhpcsLspServer::new);
 
-        // Try to find the LSP server binary
-        eprintln!("PHPCS LSP: About to call find_lsp_server_binary");
-        let lsp_server_path = match self.find_lsp_server_binary(worktree) {
-            Ok(path) => {
-                eprintln!("PHPCS LSP: Successfully found LSP server at: {}", path);
-                path
+                Ok(zed::Command {
+                    command: phpcs_lsp.language_server_binary_path(language_server_id, worktree)?,
+                    args: vec![],
+                    env: Default::default(),
+                })
             }
-            Err(e) => {
-                eprintln!("PHPCS LSP: Failed to find LSP server: {}", e);
-                return Err(e);
-            }
-        };
-        
-        eprintln!("PHPCS LSP: Returning command with path: {}", lsp_server_path);
-        Ok(zed::Command {
-            command: lsp_server_path.to_string(),
-            args: vec![],
-            env: Default::default(),
-        })
+            language_server_id => Err(format!("unknown language server: {language_server_id}").into()),
+        }
     }
 
     fn language_server_initialization_options(
@@ -111,24 +113,6 @@ impl zed::Extension for PhpcsLspExtension {
 }
 
 impl PhpcsLspExtension {
-    fn find_lsp_server_binary(&mut self, _worktree: &zed::Worktree) -> Result<String> {
-        eprintln!("PHPCS LSP: Searching for LSP server binary...");
-        
-        // Check if we already have a cached binary path
-        if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path).is_ok() {
-                eprintln!("PHPCS LSP: Using cached binary: {}", path);
-                return Ok(path.clone());
-            }
-        }
-
-        // For Zed extensions, the binary name should be just the name
-        // Zed will look for it in the extension directory
-        let binary_name = "phpcs-lsp-server".to_string();
-        eprintln!("PHPCS LSP: Returning binary path: {}", binary_name);
-        self.cached_binary_path = Some(binary_name.clone());
-        Ok(binary_name)
-    }
 
     fn find_phpcs_binary(worktree: &zed::Worktree) -> Option<String> {
         eprintln!("PHPCS LSP: Searching for PHPCS binary...");

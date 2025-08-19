@@ -72,7 +72,7 @@ fi
 ZED_WORK_DIR="$HOME/Library/Application Support/Zed/extensions/work/phpcs-lsp"
 if [ -d "$ZED_WORK_DIR" ]; then
     print_status "Copying to Zed work directory for development..."
-    cp ./phpcs-lsp-server "$ZED_WORK_DIR/"
+    cp lsp-server/target/release/phpcs-lsp-server "$ZED_WORK_DIR/phpcs-lsp-server"
     chmod +x "$ZED_WORK_DIR/phpcs-lsp-server"
     
     if [ -d "bin" ]; then
@@ -80,6 +80,8 @@ if [ -d "$ZED_WORK_DIR" ]; then
     fi
     
     print_success "Development files copied to Zed work directory"
+else
+    print_warning "Zed work directory not found at: $ZED_WORK_DIR"
 fi
 
 echo

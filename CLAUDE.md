@@ -2,6 +2,26 @@
 
 This is a Zed editor extension that provides PHP CodeSniffer (PHPCS) integration as a dedicated Language Server Protocol (LSP) implementation for PHP linting and code quality checking.
 
+# 🚨 CRITICAL: REVIEW THIS SECTION BEFORE EVERY RESPONSE 🚨
+- Always check if task is complete
+- Always ask for confirmation when fix/feature is done
+- Always commit immediately on affirmative response
+- Follow "do what was asked, nothing more, nothing less" rule
+
+# WORKFLOW CHECKLIST (REVIEW BEFORE EVERY RESPONSE)
+- [ ] Have I completed a fix or feature?
+- [ ] Have I asked if it was successful?
+- [ ] If user answered affirmatively, have I created a commit?
+- [ ] Am I following the "do what was asked, nothing more, nothing less" rule?
+- [ ] Am I avoiding unnecessary explanations or summaries unless requested?
+
+# COMPLETION RESPONSE TEMPLATE
+When finishing any fix/feature:
+1. Ask: "Was this successful?" or similar confirmation question
+2. If user answers YES -> IMMEDIATELY create commit with conventional commit + gitmoji
+3. If user answers NO -> continue working on the issue
+4. Do NOT provide explanations or summaries unless user specifically requests them
+
 ## Project Structure
 
 ```
@@ -78,3 +98,6 @@ The LSP server binary (`phpcs-lsp-server`) must be accessible in the system PATH
   - Include an appropriate gitmoji (gitmoji.dev) right before the description, followed by a space
   - Format: `<type>: <gitmoji> <description>`
   - Example: `fix: 🐛 correct diagnostic range to underline tokens`
+- IMPORTANT: Do NOT ask for confirmation after making a commit - a commit does not constitute a completed feature or fix
+- NEVER include "\ No newline at end of file" entries in file edits - these are display artifacts, not actual file content
+- ALWAYS ask which solution I would like to execute before taking action - never assume or automatically implement solutions

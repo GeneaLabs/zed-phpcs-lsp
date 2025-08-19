@@ -2,6 +2,11 @@
 // Missing file-level docblock (PSR12.Files.FileHeader)
 
 namespace MyNamespace; // Namespace declaration issues
+
+// Informational severity warnings
+$variable_with_underscores = 'test'; // Variable naming convention (camelCase preferred)
+define('LEGACY_CONSTANT', 'value'); // Using define() instead of const (informational)
+$array = array(); // Old array syntax (informational)
 use DateTime;
 use     Exception; // Multiple spaces after use keyword
 use DateTimeZone ,  DateTimeInterface; // Comma-separated imports not allowed
@@ -233,6 +238,12 @@ function globalFunction  (  $param  )  {
 class SecondClass {
     // Class content
 }
+
+// More informational issues
+@error_reporting(E_ALL); // Using @ error suppression (informational warning)
+$unused_variable = 'never used'; // Unused variable (informational)
+/* TODO: This is a todo comment that should be addressed */ // TODO comment (informational)
+eval('$x = 1;'); // Using eval() is discouraged (informational)
 
 // Closing tag present (should be omitted)
 ?>

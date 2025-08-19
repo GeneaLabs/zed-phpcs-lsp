@@ -1,5 +1,5 @@
 id = "phpcs-lsp"
-name = "PHPCS Language Server"
+name = "PHPCS"
 description = "PHP CodeSniffer Language Server for linting PHP code"
 version = "0.1.0"
 schema_version = 1
@@ -11,11 +11,7 @@ kind = "Rust"
 version = "0.6.0"
 
 [language_servers.phpcs-lsp-server]
-name = "PHPCS LSP"
+name = "PHPCS"
 languages = ["PHP"]
-
-[language_servers.phpcs-lsp-server.language_ids]
-PHP = "php"
-
-[language_servers.phpcs-lsp-server.binary]
-path = "phpcs-lsp-server"
+language_ids = { PHP = "php" }
+binary = { path = "phpcs-lsp-server" }
