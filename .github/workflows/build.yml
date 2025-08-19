@@ -59,60 +59,60 @@ jobs:
             artifact_name: phpcs-lsp-server-windows-arm64
 
     runs-on: ${{ matrix.os }}
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ matrix.target }}
-    
+
     - name: Cache cargo registry
       uses: actions/cache@v3
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-    
+
     - name: Cache cargo index
       uses: actions/cache@v3
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-    
+
     - name: Cache cargo build
       uses: actions/cache@v3
       with:
         path: lsp-server/target
         key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-    
+
     - name: Install cross (for Linux ARM64)
       if: matrix.cross == true
       run: cargo install cross --git https://github.com/cross-rs/cross
-    
+
     - name: Build LSP server (native)
       if: matrix.cross != true
       working-directory: lsp-server
       run: cargo build --release --target ${{ matrix.target }}
-    
+
     - name: Build LSP server (cross-compile)
       if: matrix.cross == true
       working-directory: lsp-server
       run: cross build --release --target ${{ matrix.target }}
-    
+
     - name: Prepare binary (Unix)
       if: matrix.os != 'windows-latest'
       run: |
         mkdir -p dist
         cp lsp-server/target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/
         chmod +x dist/${{ matrix.binary_name }}
-    
+
     - name: Prepare binary (Windows)
       if: matrix.os == 'windows-latest'
       run: |
         mkdir dist
         copy lsp-server\target\${{ matrix.target }}\release\${{ matrix.binary_name }} dist\
-    
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
@@ -124,17 +124,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
     - uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-    
+
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts
-    
+
     - name: Prepare binaries
       run: |
         # Copy binaries to bin folder with proper names
@@ -144,34 +144,34 @@ jobs:
         cp artifacts/phpcs-lsp-server-macos-arm64/phpcs-lsp-server bin/phpcs-lsp-server-macos-arm64
         cp artifacts/phpcs-lsp-server-windows-x64/phpcs-lsp-server.exe bin/phpcs-lsp-server-windows-x64.exe
         cp artifacts/phpcs-lsp-server-windows-arm64/phpcs-lsp-server.exe bin/phpcs-lsp-server-windows-arm64.exe
-        
+
         # Make Unix binaries executable
         chmod +x bin/phpcs-lsp-server-linux-*
         chmod +x bin/phpcs-lsp-server-macos-*
-        
+
         # List the binaries
         ls -la bin/phpcs-lsp-server-*
-    
+
     - name: Commit and push binaries
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        
+
         # Add the binaries
         git add bin/phpcs-lsp-server-*
-        
+
         # Check if there are changes (including new files)
         if git diff --staged --quiet; then
           echo "No changes to binaries"
         else
-          git commit -m "chore: 🤖 update LSP server binaries for all platforms
-        
+          git commit -m "build: 🤖 update LSP server binaries for all platforms.
+
         Built from commit: ${{ github.sha }}
-        
+
         Platforms:
         - Linux x64 & ARM64
-        - macOS x64 & ARM64  
+        - macOS x64 & ARM64
         - Windows x64 & ARM64"
-          
+
           git push
         fi

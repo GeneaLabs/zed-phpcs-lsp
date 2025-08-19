@@ -84,30 +84,22 @@ jobs:
         php bin/phpcs.phar --version
         php bin/phpcbf.phar --version
 
-    - name: Create Pull Request
+    - name: Commit and push updates
       if: steps.compare.outputs.update_needed == 'true'
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "chore: update PHPCS to ${{ steps.latest.outputs.version }}"
-        title: "chore: update PHPCS to ${{ steps.latest.outputs.version }}"
-        body: |
-          ## Automated PHPCS Update
-          
-          This PR updates PHP_CodeSniffer from `${{ steps.current.outputs.version }}` to `${{ steps.latest.outputs.version }}`.
-          
-          ### Changes
-          - Updated `bin/phpcs.phar` to version ${{ steps.latest.outputs.version }}
-          - Updated `bin/phpcbf.phar` to version ${{ steps.latest.outputs.version }}
-          
-          ### Source
-          - Release: https://github.com/squizlabs/PHP_CodeSniffer/releases/tag/${{ steps.latest.outputs.version }}
-          
-          ---
-          *This PR was automatically created by the PHPCS update workflow.*
-        branch: update-phpcs-${{ steps.latest.outputs.version }}
-        delete-branch: true
-        labels: |
-          dependencies
-          phpcs
-          automated
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        git add bin/phpcs.phar bin/phpcbf.phar
+        
+        git commit -m "chore: 🔧 update PHPCS to ${{ steps.latest.outputs.version }}
+        
+        Updates PHP_CodeSniffer from ${{ steps.current.outputs.version }} to ${{ steps.latest.outputs.version }}
+        
+        Changes:
+        - Updated bin/phpcs.phar to version ${{ steps.latest.outputs.version }}
+        - Updated bin/phpcbf.phar to version ${{ steps.latest.outputs.version }}
+        
+        Source: https://github.com/squizlabs/PHP_CodeSniffer/releases/tag/${{ steps.latest.outputs.version }}"
+        
+        git push
