@@ -63,9 +63,18 @@ Use the provided `test.php` file which contains various PHPCS violations to test
 ## Installation Notes
 
 The LSP server binary (`phpcs-lsp-server`) must be accessible in the system PATH or the extension will not function. The extension automatically looks for PHPCS in `vendor/bin/phpcs` first, then falls back to global installation.
+
+## Important: Executable Locations
+**ALL executables are stored in the `bin/` folder** - including phpcs, phpcbf, and other tools. Always check `bin/` directory for any executables.
 - reference PHPCS documentation: https://github.com/squizlabs/PHP_CodeSniffer
 - reference Zed documentation: https://zed.dev/docs/
 - most importantly reference Zed plugin development documentation: https://zed.dev/docs/extensions/developing-extensions
 - never copy things to the user bin directory
 - do not just create random test files, instead create unit tests as part of the project
-- after every completed fix or feature, ask me if it was successful, and if i do not answer affirmatively, it implies that it was not successful and further work is done. However, if I answer affirmatively, then commit the changes with a conventional commit formatted message including a gitmoji at the start of the commit title
+- after every completed fix or feature, ALWAYS ask me if it was successful/working as expected
+- if I do not answer affirmatively, it implies that it was not successful and further work needs to be done
+- if I answer affirmatively, then commit the changes using:
+  - Conventional Commits format (conventionalcommits.org)
+  - Include an appropriate gitmoji (gitmoji.dev) right before the description, followed by a space
+  - Format: `<type>: <gitmoji> <description>`
+  - Example: `fix: 🐛 correct diagnostic range to underline tokens`

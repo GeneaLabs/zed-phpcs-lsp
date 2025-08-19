@@ -2,10 +2,10 @@
 name = "phpcs-lsp"
 version = "0.1.0"
 edition = "2021"
-authors = ["Test Author <test@example.com>"]
+authors = ["Mike Bronner <mike.bronner@icloud.com>"]
 description = "PHP CodeSniffer Language Server extension for Zed"
 license = "MIT"
-repository = "https://github.com/your-username/zed-phpcs-lsp"
+repository = "https://github.com/mikebronner/zed-phpcs-lsp"
 
 [lib]
 crate-type = ["cdylib"]

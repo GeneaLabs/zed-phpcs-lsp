@@ -111,7 +111,7 @@ impl zed::Extension for PhpcsLspExtension {
 }
 
 impl PhpcsLspExtension {
-    fn find_lsp_server_binary(&mut self, worktree: &zed::Worktree) -> Result<String> {
+    fn find_lsp_server_binary(&mut self, _worktree: &zed::Worktree) -> Result<String> {
         eprintln!("PHPCS LSP: Searching for LSP server binary...");
         
         // Check if we already have a cached binary path
@@ -122,10 +122,10 @@ impl PhpcsLspExtension {
             }
         }
 
-        // For Zed extensions, the binary should just be "phpcs-lsp-server"
-        // Zed will automatically look for it in the extension directory
+        // For Zed extensions, the binary name should be just the name
+        // Zed will look for it in the extension directory
         let binary_name = "phpcs-lsp-server".to_string();
-        eprintln!("PHPCS LSP: Returning binary name: {}", binary_name);
+        eprintln!("PHPCS LSP: Returning binary path: {}", binary_name);
         self.cached_binary_path = Some(binary_name.clone());
         Ok(binary_name)
     }
