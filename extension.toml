@@ -14,4 +14,3 @@ version = "0.6.0"
 name = "PHPCS"
 languages = ["PHP"]
 language_ids = { PHP = "php" }
-binary = { path = "bin/phpcs-lsp-server" }

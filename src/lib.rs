@@ -14,12 +14,16 @@ impl PhpcsLspServer {
         Self
     }
 
-    fn language_server_binary_path(
-        &self,
+    fn language_server_command(
+        &mut self,
         _language_server_id: &zed::LanguageServerId,
         _worktree: &zed::Worktree,
-    ) -> Result<String> {
-        Ok("bin/phpcs-lsp-server".to_string())
+    ) -> Result<zed::Command> {
+        Ok(zed::Command {
+            command: "bin/phpcs-lsp-server".to_string(),
+            args: vec![],
+            env: Default::default(),
+        })
     }
 }
 
@@ -39,12 +43,7 @@ impl zed::Extension for PhpcsLspExtension {
         match language_server_id.as_ref() {
             PhpcsLspServer::LANGUAGE_SERVER_ID => {
                 let phpcs_lsp = self.phpcs_lsp.get_or_insert_with(PhpcsLspServer::new);
-
-                Ok(zed::Command {
-                    command: phpcs_lsp.language_server_binary_path(language_server_id, worktree)?,
-                    args: vec![],
-                    env: Default::default(),
-                })
+                phpcs_lsp.language_server_command(language_server_id, worktree)
             }
             language_server_id => Err(format!("unknown language server: {language_server_id}").into()),
         }
