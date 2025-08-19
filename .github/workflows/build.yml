@@ -3,16 +3,23 @@ name: Build Cross-Platform LSP Server
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'lsp-server/**'
+      - '.github/workflows/build.yml'
   pull_request:
     branches: [ main ]
-  release:
-    types: [ published ]
+    paths:
+      - 'lsp-server/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       test_build:
         description: 'Test build without creating release'
         required: false
         default: 'true'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -113,42 +120,56 @@ jobs:
         path: dist/${{ matrix.binary_name }}
         retention-days: 30
 
-  package:
+  commit-binaries:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts
     
-    - name: Prepare release binaries
+    - name: Prepare binaries
       run: |
-        mkdir -p release/bin
-        # Copy and rename binaries with platform suffixes
-        cp artifacts/phpcs-lsp-server-linux-x64/phpcs-lsp-server release/bin/phpcs-lsp-server-linux-x64
-        cp artifacts/phpcs-lsp-server-linux-arm64/phpcs-lsp-server release/bin/phpcs-lsp-server-linux-arm64
-        cp artifacts/phpcs-lsp-server-macos-x64/phpcs-lsp-server release/bin/phpcs-lsp-server-macos-x64
-        cp artifacts/phpcs-lsp-server-macos-arm64/phpcs-lsp-server release/bin/phpcs-lsp-server-macos-arm64
-        cp artifacts/phpcs-lsp-server-windows-x64/phpcs-lsp-server.exe release/bin/phpcs-lsp-server-windows-x64.exe
-        cp artifacts/phpcs-lsp-server-windows-arm64/phpcs-lsp-server.exe release/bin/phpcs-lsp-server-windows-arm64.exe
+        # Copy binaries to bin folder with proper names
+        cp artifacts/phpcs-lsp-server-linux-x64/phpcs-lsp-server bin/phpcs-lsp-server-linux-x64
+        cp artifacts/phpcs-lsp-server-linux-arm64/phpcs-lsp-server bin/phpcs-lsp-server-linux-arm64
+        cp artifacts/phpcs-lsp-server-macos-x64/phpcs-lsp-server bin/phpcs-lsp-server-macos-x64
+        cp artifacts/phpcs-lsp-server-macos-arm64/phpcs-lsp-server bin/phpcs-lsp-server-macos-arm64
+        cp artifacts/phpcs-lsp-server-windows-x64/phpcs-lsp-server.exe bin/phpcs-lsp-server-windows-x64.exe
+        cp artifacts/phpcs-lsp-server-windows-arm64/phpcs-lsp-server.exe bin/phpcs-lsp-server-windows-arm64.exe
         
         # Make Unix binaries executable
-        chmod +x release/bin/phpcs-lsp-server-*
+        chmod +x bin/phpcs-lsp-server-linux-*
+        chmod +x bin/phpcs-lsp-server-macos-*
         
-        # Create archive
-        cd release
-        tar -czf ../phpcs-lsp-binaries.tar.gz .
+        # List the binaries
+        ls -la bin/phpcs-lsp-server-*
     
-    - name: Upload release assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          phpcs-lsp-binaries.tar.gz
-          release/bin/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Commit and push binaries
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # Check if there are changes
+        if git diff --quiet bin/; then
+          echo "No changes to binaries"
+        else
+          git add bin/phpcs-lsp-server-*
+          git commit -m "chore: 🤖 update LSP server binaries for all platforms
+        
+        Built from commit: ${{ github.sha }}
+        
+        Platforms:
+        - Linux x64 & ARM64
+        - macOS x64 & ARM64  
+        - Windows x64 & ARM64"
+          
+          git push
+        fi
