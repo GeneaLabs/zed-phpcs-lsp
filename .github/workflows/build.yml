@@ -145,7 +145,7 @@ jobs:
         tar -czf ../phpcs-lsp-binaries.tar.gz .
     
     - name: Upload release assets
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           phpcs-lsp-binaries.tar.gz
