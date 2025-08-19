@@ -32,7 +32,7 @@ impl PhpcsLanguageServer {
         }
     }
 
-    async fn run_phpcs(&self, file_path: &str, content: Option<&str>) -> Result<Vec<Diagnostic>> {
+    async fn run_phpcs(&self, uri: &Url, file_path: &str, content: Option<&str>) -> Result<Vec<Diagnostic>> {
         let phpcs_path = {
             let path_guard = self.phpcs_path.read().unwrap();
             path_guard.clone().unwrap_or_else(|| {
@@ -106,7 +106,7 @@ impl PhpcsLanguageServer {
             
             let output = child.wait_with_output()?;
             let raw_output = String::from_utf8_lossy(&output.stdout);
-            self.parse_phpcs_output(&raw_output).await
+            self.parse_phpcs_output(&raw_output, uri).await
         } else {
             cmd.arg(file_path);
             eprintln!("PHPCS LSP: Running command on file: {}", file_path);
@@ -119,11 +119,11 @@ impl PhpcsLanguageServer {
                 }
             };
             let raw_output = String::from_utf8_lossy(&output.stdout);
-            self.parse_phpcs_output(&raw_output).await
+            self.parse_phpcs_output(&raw_output, uri).await
         }
     }
 
-    async fn parse_phpcs_output(&self, json_output: &str) -> Result<Vec<Diagnostic>> {
+    async fn parse_phpcs_output(&self, json_output: &str, uri: &Url) -> Result<Vec<Diagnostic>> {
         let mut diagnostics = Vec::new();
         
         let phpcs_result: serde_json::Value = match serde_json::from_str(json_output) {
@@ -135,7 +135,7 @@ impl PhpcsLanguageServer {
             for (_, file_data) in files {
                 if let Some(messages) = file_data.get("messages").and_then(|m| m.as_array()) {
                     for message in messages {
-                        if let Some(diagnostic) = self.convert_message_to_diagnostic(message).await {
+                        if let Some(diagnostic) = self.convert_message_to_diagnostic(message, uri).await {
                             diagnostics.push(diagnostic);
                         }
                     }
@@ -146,11 +146,12 @@ impl PhpcsLanguageServer {
         Ok(diagnostics)
     }
 
-    async fn convert_message_to_diagnostic(&self, message: &serde_json::Value) -> Option<Diagnostic> {
+    async fn convert_message_to_diagnostic(&self, message: &serde_json::Value, uri: &Url) -> Option<Diagnostic> {
         let line = message.get("line")?.as_u64()? as u32;
         let column = message.get("column")?.as_u64()? as u32;
         let msg = message.get("message")?.as_str()?;
         let severity_str = message.get("type")?.as_str()?;
+        let source = message.get("source")?.as_str().unwrap_or("");
 
         let severity = match severity_str {
             "ERROR" => DiagnosticSeverity::ERROR,
@@ -162,10 +163,65 @@ impl PhpcsLanguageServer {
         let line = if line > 0 { line - 1 } else { 0 };
         let column = if column > 0 { column - 1 } else { 0 };
         
-        // Simple range - just highlight a few characters
-        let range = Range {
-            start: Position { line, character: column },
-            end: Position { line, character: column + 3 },
+        // Determine if this is a line-level or tag-level issue
+        let is_line_level = msg.contains("Line exceeds") || 
+                           msg.contains("line is too long") ||
+                           msg.contains("Whitespace found at end of line") ||
+                           msg.contains("Line indented incorrectly") ||
+                           msg.contains("separated by a single blank line") ||
+                           msg.contains("blocks must be separated") ||
+                           source.contains("Generic.Files.LineLength") ||
+                           source.contains("Generic.WhiteSpace.DisallowTabIndent") ||
+                           source.contains("Squiz.WhiteSpace.SuperfluousWhitespace") ||
+                           source.contains("PSR12.Files.FileHeader.SpacingAfterBlock");
+        
+        let is_tag_level = msg.contains("closing tag") ||
+                          msg.contains("Opening PHP tag") ||
+                          msg.contains("<?php") ||
+                          msg.contains("?>") ||
+                          source.contains("PSR2.Files.ClosingTag") ||
+                          source.contains("PSR12.Files.OpenTag");
+        
+        // Get the line content from the stored document
+        let range = if let Ok(docs) = self.open_docs.read() {
+            if let Some(content) = docs.get(uri) {
+                if let Some(line_content) = content.lines().nth(line as usize) {
+                    if is_line_level {
+                        // Underline from first non-whitespace character to end of line
+                        let first_non_whitespace = line_content.chars()
+                            .position(|c| !c.is_whitespace())
+                            .unwrap_or(0) as u32;
+                        Range {
+                            start: Position { line, character: first_non_whitespace },
+                            end: Position { line, character: line_content.len() as u32 },
+                        }
+                    } else if is_tag_level {
+                        // Find and underline the PHP tag
+                        self.find_tag_range(line_content, line, column)
+                    } else {
+                        // Normal token-based underlining
+                        self.find_token_range(line_content, line, column)
+                    }
+                } else {
+                    // Fallback if line not found
+                    Range {
+                        start: Position { line, character: column },
+                        end: Position { line, character: column + 1 },
+                    }
+                }
+            } else {
+                // Fallback if no document content
+                Range {
+                    start: Position { line, character: column },
+                    end: Position { line, character: column + 1 },
+                }
+            }
+        } else {
+            // Fallback if lock fails
+            Range {
+                start: Position { line, character: column },
+                end: Position { line, character: column + 1 },
+            }
         };
 
         Some(Diagnostic {
@@ -179,6 +235,118 @@ impl PhpcsLanguageServer {
             code_description: None,
             data: None,
         })
+    }
+
+    fn find_tag_range(&self, line_content: &str, line: u32, column: u32) -> Range {
+        let col = column as usize;
+        
+        // Look for all possible PHP tags and find the one closest to column position
+        let mut best_match: Option<(usize, usize)> = None; // (start_pos, end_pos)
+        
+        // Check for opening tag "<?php"
+        if let Some(pos) = line_content.find("<?php") {
+            let distance = if col >= pos && col <= pos + 5 { 0 } else { col.abs_diff(pos) };
+            if best_match.is_none() || distance <= col.abs_diff(best_match.unwrap().0) {
+                best_match = Some((pos, pos + 5));
+            }
+        }
+        
+        // Check for closing tag "?>"
+        if let Some(pos) = line_content.find("?>") {
+            let distance = if col >= pos && col <= pos + 2 { 0 } else { col.abs_diff(pos) };
+            if best_match.is_none() || distance < col.abs_diff(best_match.unwrap().0) {
+                best_match = Some((pos, pos + 2));
+            }
+        }
+        
+        // Check for short opening tag "<?" (but only if not part of "<?php")
+        let mut search_pos = 0;
+        while let Some(pos) = line_content[search_pos..].find("<?") {
+            let actual_pos = search_pos + pos;
+            // Make sure it's not part of "<?php"
+            if !line_content[actual_pos..].starts_with("<?php") {
+                let distance = if col >= actual_pos && col <= actual_pos + 2 { 0 } else { col.abs_diff(actual_pos) };
+                if best_match.is_none() || distance < col.abs_diff(best_match.unwrap().0) {
+                    best_match = Some((actual_pos, actual_pos + 2));
+                }
+            }
+            search_pos = actual_pos + 2;
+            if search_pos >= line_content.len() { break; }
+        }
+        
+        if let Some((start, end)) = best_match {
+            Range {
+                start: Position { line, character: start as u32 },
+                end: Position { line, character: end as u32 },
+            }
+        } else {
+            // If no tag found, underline from column position with a reasonable default
+            Range {
+                start: Position { line, character: column },
+                end: Position { line, character: column.saturating_add(2) },
+            }
+        }
+    }
+    
+    fn find_token_range(&self, line_content: &str, line: u32, column: u32) -> Range {
+        let chars: Vec<char> = line_content.chars().collect();
+        let col = column as usize;
+        
+        // If column is beyond line length, use end of line
+        if col >= chars.len() {
+            return Range {
+                start: Position { line, character: column.saturating_sub(1) },
+                end: Position { line, character: column },
+            };
+        }
+        
+        // Find token boundaries
+        let mut start = col;
+        let mut end = col;
+        
+        // Determine token type at column position
+        let ch = chars[col];
+        
+        if ch.is_alphanumeric() || ch == '_' || ch == '$' {
+            // Identifier or variable token
+            while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_' || chars[start - 1] == '$') {
+                start -= 1;
+            }
+            while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+                end += 1;
+            }
+        } else if ch.is_whitespace() {
+            // For whitespace issues, highlight the space
+            while end < chars.len() && chars[end].is_whitespace() {
+                end += 1;
+            }
+        } else {
+            // Operator or punctuation
+            let operator_chars = ['=', '!', '<', '>', '+', '-', '*', '/', '%', '&', '|', '^', '~'];
+            if operator_chars.contains(&ch) {
+                // Check for multi-character operators
+                while end < chars.len() && operator_chars.contains(&chars[end]) {
+                    end += 1;
+                }
+                // Also check backward for multi-char operators
+                while start > 0 && operator_chars.contains(&chars[start - 1]) {
+                    start -= 1;
+                }
+            } else {
+                // Single character token (parenthesis, bracket, semicolon, etc.)
+                end = col + 1;
+            }
+        }
+        
+        // Ensure we have at least one character highlighted
+        if start == end {
+            end = (col + 1).min(chars.len());
+        }
+        
+        Range {
+            start: Position { line, character: start as u32 },
+            end: Position { line, character: end as u32 },
+        }
     }
 }
 
@@ -261,7 +429,7 @@ impl LanguageServer for PhpcsLanguageServer {
                     docs.get(&uri).cloned()
                 };
                 
-                if let Ok(diagnostics) = self.run_phpcs(path_str, content.as_deref()).await {
+                if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, content.as_deref()).await {
                     let _ = self.client.publish_diagnostics(uri, diagnostics, None).await;
                 }
             }
@@ -283,7 +451,7 @@ impl LanguageServer for PhpcsLanguageServer {
                     docs.get(&uri).cloned()
                 };
                 
-                if let Ok(diagnostics) = self.run_phpcs(path_str, content.as_deref()).await {
+                if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, content.as_deref()).await {
                     let _ = self.client.publish_diagnostics(uri, diagnostics, None).await;
                 }
             }
@@ -300,7 +468,7 @@ impl LanguageServer for PhpcsLanguageServer {
                     docs.get(&uri).cloned()
                 };
                 
-                if let Ok(diagnostics) = self.run_phpcs(path_str, content.as_deref()).await {
+                if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, content.as_deref()).await {
                     let _ = self.client.publish_diagnostics(uri, diagnostics, None).await;
                 }
             }
@@ -346,7 +514,7 @@ impl LanguageServer for PhpcsLanguageServer {
                 eprintln!("PHPCS LSP: Diagnostic request for: {}", path_str);
                 eprintln!("PHPCS LSP: Content in memory: {}", content.is_some());
                 
-                if let Ok(diagnostics) = self.run_phpcs(path_str, content.as_deref()).await {
+                if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, content.as_deref()).await {
                     eprintln!("PHPCS LSP: Found {} diagnostics", diagnostics.len());
                     return Ok(DocumentDiagnosticReportResult::Report(
                         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
