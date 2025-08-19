@@ -157,11 +157,13 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # Check if there are changes
-        if git diff --quiet bin/; then
+        # Add the binaries
+        git add bin/phpcs-lsp-server-*
+        
+        # Check if there are changes (including new files)
+        if git diff --staged --quiet; then
           echo "No changes to binaries"
         else
-          git add bin/phpcs-lsp-server-*
           git commit -m "chore: 🤖 update LSP server binaries for all platforms
         
         Built from commit: ${{ github.sha }}
