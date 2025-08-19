@@ -1,0 +1,53 @@
+title: "Feature Request: "
+labels: ["enhancement", "feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! We love hearing ideas from the community.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What problem does this solve?"
+      description: "Describe the use case or pain point this feature would address"
+      placeholder: "I often need to... but currently there's no way to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "Proposed solution"
+      description: "What would you like to see implemented?"
+      placeholder: "Add a setting that allows... or Create a command that..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives considered"
+      description: "What workarounds are you currently using?"
+      placeholder: "Currently I have to manually... or I use another tool..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: "Additional context"
+      description: "Mockups, examples, or other relevant information"
+      placeholder: "Screenshots, code examples, links to similar features in other tools"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Pre-submission checklist"
+      options:
+        - label: "I've searched existing discussions and issues for similar requests"
+          required: true
+        - label: "This feature would benefit other users, not just my specific use case"
+          required: true
