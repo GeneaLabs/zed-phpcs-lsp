@@ -31,5 +31,5 @@ __pycache__/
 .ropeproject/
 .claude*/
 .swarm/
-
-# Bundled PHPCS PHAR files (removed - now committing bin/ folder)
+lsp-server/.claude*/
+lsp-server/.swarm/
