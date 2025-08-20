@@ -16,6 +16,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+          ref: main
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -71,9 +72,10 @@ jobs:
             echo "No changes to commit"
             echo "new_commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           else
+            # Ensure we're on the main branch (not detached HEAD)
+            git checkout main
             git add -A
             git commit -m "chore: update version to ${{ steps.extract_version.outputs.version }} [skip ci]"
-            git pull origin main
             git push origin main
             NEW_COMMIT_SHA=$(git rev-parse HEAD)
             echo "new_commit_sha=${NEW_COMMIT_SHA}" >> $GITHUB_OUTPUT
