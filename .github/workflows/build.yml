@@ -76,7 +76,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.OWNER_PAT || github.token }}
 
     - name: Update PHPCS PHAR files
       if: github.event.inputs.update_phpcs == 'true'
@@ -102,8 +102,11 @@ jobs:
         php bin/phpcbf.phar --version
 
         # Commit PHPCS updates
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
+        git config --local user.email "mike@genealabs.com"
+        git config --local user.name "mikebronner"
+
+        # Configure git to use the owner token for authentication
+        git remote set-url origin https://x-access-token:${{ secrets.OWNER_TOKEN || github.token }}@github.com/${{ github.repository }}.git
 
         git add bin/phpcs.phar bin/phpcbf.phar
 
@@ -181,7 +184,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.OWNER_PAT || github.token }}
 
     - name: Download all artifacts
       uses: actions/download-artifact@v5
@@ -207,8 +210,12 @@ jobs:
 
     - name: Commit and push binaries
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
+        # Configure git with owner credentials
+        git config --local user.email "mike@genealabs.com"
+        git config --local user.name "mikebronner"
+
+        # Configure git to use the owner token for authentication
+        git remote set-url origin https://x-access-token:${{ secrets.OWNER_PAT || github.token }}@github.com/${{ github.repository }}.git
 
         # Add the binaries
         git add bin/phpcs-lsp-server-*
