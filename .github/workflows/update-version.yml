@@ -1,0 +1,77 @@
+name: Update Version on Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Extract version from release tag
+        id: extract_version
+        run: |
+          # Remove 'v' prefix if present (e.g., v1.2.3 -> 1.2.3)
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Extracted version: ${VERSION}"
+
+      - name: Update versions and lock files
+        run: |
+          # Update TOML versions
+          sed -i 's/^version = "[^"]*"/version = "${{ steps.extract_version.outputs.version }}"/' Cargo.toml
+          echo "Updated root Cargo.toml version to ${{ steps.extract_version.outputs.version }}"
+
+          sed -i 's/^version = "[^"]*"/version = "${{ steps.extract_version.outputs.version }}"/' extension.toml
+          echo "Updated extension.toml version to ${{ steps.extract_version.outputs.version }}"
+
+          sed -i 's/^version = "[^"]*"/version = "${{ steps.extract_version.outputs.version }}"/' lsp-server/Cargo.toml
+          echo "Updated lsp-server/Cargo.toml version to ${{ steps.extract_version.outputs.version }}"
+
+          # Update Cargo.lock files
+          cargo update --manifest-path Cargo.toml
+          echo "Updated root Cargo.lock"
+
+          cargo update --manifest-path lsp-server/Cargo.toml
+          echo "Updated lsp-server/Cargo.lock"
+
+      - name: Verify changes
+        run: |
+          echo "=== Root Cargo.toml ==="
+          grep "^version =" Cargo.toml
+          echo "=== extension.toml ==="
+          grep "^version =" extension.toml
+          echo "=== lsp-server/Cargo.toml ==="
+          grep "^version =" lsp-server/Cargo.toml
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          # Check if there are any changes to commit
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git add -A
+            git commit -m "chore: update version to ${{ steps.extract_version.outputs.version }} [skip ci]"
+            git pull origin main
+            git push origin main
+            echo "All changed files updated and pushed to main branch"
+          fi
