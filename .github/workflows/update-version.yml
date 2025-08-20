@@ -73,7 +73,7 @@ jobs:
             echo "new_commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           else
             git add -A
-            git commit -m "chore: update version to ${{ steps.extract_version.outputs.version }} [skip ci]"
+            git commit -m "chore: 🔖 Update version to ${{ steps.extract_version.outputs.version }}."
             git push origin main
             NEW_COMMIT_SHA=$(git rev-parse HEAD)
             echo "new_commit_sha=${NEW_COMMIT_SHA}" >> $GITHUB_OUTPUT
