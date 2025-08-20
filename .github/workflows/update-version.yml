@@ -14,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           ref: main
 
@@ -72,8 +72,6 @@ jobs:
             echo "No changes to commit"
             echo "new_commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           else
-            # Ensure we're on the main branch (not detached HEAD)
-            git checkout main
             git add -A
             git commit -m "chore: update version to ${{ steps.extract_version.outputs.version }} [skip ci]"
             git push origin main
@@ -83,29 +81,36 @@ jobs:
             echo "New commit SHA: ${NEW_COMMIT_SHA}"
           fi
 
-      - name: Update release and tag to point to new commit
+      - name: Update tag and release
         if: steps.commit_changes.outputs.new_commit_sha != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
         run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          RELEASE_ID="${{ github.event.release.id }}"
+          FINAL_COMMIT_SHA="${{ steps.commit_changes.outputs.new_commit_sha }}"
+
+          echo "Updating tag ${TAG_NAME} to point to commit ${FINAL_COMMIT_SHA}"
+
           # Update the tag to point to the new commit
-          echo "Updating tag ${{ github.event.release.tag_name }} to point to commit ${{ steps.commit_changes.outputs.new_commit_sha }}"
-
-          # Delete the old tag locally and remotely
-          git tag -d ${{ github.event.release.tag_name }} || true
-          git push origin :refs/tags/${{ github.event.release.tag_name }} || true
-
-          # Create new tag pointing to the new commit
-          git tag ${{ github.event.release.tag_name }} ${{ steps.commit_changes.outputs.new_commit_sha }}
-          git push origin ${{ github.event.release.tag_name }}
-
-          echo "Updated tag ${{ github.event.release.tag_name }} to point to commit ${{ steps.commit_changes.outputs.new_commit_sha }}"
-
-          # Update the release to point to the new commit with version updates
           curl -L \
             -X PATCH \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}" \
-            -d "{\"target_commitish\":\"${{ steps.commit_changes.outputs.new_commit_sha }}\"}"
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/${TAG_NAME}" \
+            -d "{\"sha\":\"${FINAL_COMMIT_SHA}\",\"force\":true}"
 
-          echo "Updated release ${{ github.event.release.tag_name }} to point to commit ${{ steps.commit_changes.outputs.new_commit_sha }}"
+          echo "Updated tag ${TAG_NAME} to commit ${FINAL_COMMIT_SHA}"
+
+          # Update the release to point to the new commit
+          curl -L \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}" \
+            -d "{\"tag_name\":\"${TAG_NAME}\",\"target_commitish\":\"${FINAL_COMMIT_SHA}\"}"
+
+          echo "Updated release ${RELEASE_ID} to point to commit ${FINAL_COMMIT_SHA}"
+          echo "Version update complete!"
