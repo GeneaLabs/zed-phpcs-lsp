@@ -3,7 +3,7 @@ name = "PHPCS"
 description = "PHP CodeSniffer Language Server for linting PHP code"
 version = "0.1.0"
 schema_version = 1
-authors = ["Mike Bronner <mike.bronner@icloud.com>"]
+authors = ["Mike Bronner <mike@genealabs.com>"]
 repository = "https://github.com/GeneaLabs/zed-phpcs-lsp"
 
 [lib]
@@ -14,7 +14,4 @@ version = "0.6.0"
 name = "PHPCS"
 languages = ["PHP"]
 language_ids = { PHP = "php" }
-
-# Default settings to enable the language server automatically
-[language_servers.phpcs.settings]
-standard = "PSR12"
+settings = { standard = "PSR12" }
