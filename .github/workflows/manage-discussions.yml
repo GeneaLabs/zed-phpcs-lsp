@@ -24,7 +24,7 @@ jobs:
             repo: context.repo.repo,
             discussion_number: context.payload.discussion.number
           });
-          
+
           // Create issue from discussion
           const issue = await github.rest.issues.create({
             owner: context.repo.owner,
@@ -33,7 +33,7 @@ jobs:
             body: `**Escalated from discussion:** ${discussion.html_url}\n\n${discussion.body}`,
             labels: ['bug', 'escalated-from-discussion']
           });
-          
+
           // Add comment to discussion linking to issue
           await github.rest.discussions.createComment({
             owner: context.repo.owner,
@@ -41,7 +41,7 @@ jobs:
             discussion_number: discussion.number,
             body: `🔄 **Escalated to Issue:** This bug has been confirmed and escalated to issue #${issue.data.number} for tracking.\n\nWe'll continue updates there. Thanks for the report!`
           });
-          
+
           // Add escalated label to discussion
           await github.rest.discussions.setLabels({
             owner: context.repo.owner,
@@ -59,14 +59,14 @@ jobs:
             owner: context.repo.owner,
             repo: context.repo.repo,
             discussion_number: context.payload.discussion.number,
-            body: `👋 Thanks for the bug report! 
+            body: String.raw`👋 Thanks for the bug report!
 
-We'll investigate this and if confirmed, escalate it to an issue for tracking.
+                We'll investigate this and if confirmed, escalate it to an issue for tracking.
 
-**In the meantime:**
-- Make sure you're using the latest version of Zed
-- Check if restarting Zed helps
-- Look for any error messages in Zed's debug console
+                **In the meantime:**
+                - Make sure you're using the latest version of Zed
+                - Check if restarting Zed helps
+                - Look for any error messages in Zed's debug console
 
-We appreciate your help making the extension better! 🚀`
-          });
+                We appreciate your help making the extension better! 🚀`
+            });
