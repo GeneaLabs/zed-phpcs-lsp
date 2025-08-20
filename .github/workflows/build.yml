@@ -82,37 +82,37 @@ jobs:
       if: github.event.inputs.update_phpcs == 'true'
       run: |
         echo "Updating PHPCS to version: ${{ github.event.inputs.phpcs_version }}"
-        
+
         # Download PHPCS PHAR
         if [ -n "${{ github.event.inputs.phpcs_url }}" ]; then
           echo "Downloading PHPCS from: ${{ github.event.inputs.phpcs_url }}"
           curl -L -o bin/phpcs.phar "${{ github.event.inputs.phpcs_url }}"
           chmod +x bin/phpcs.phar
         fi
-        
+
         # Download PHPCBF PHAR
         if [ -n "${{ github.event.inputs.phpcbf_url }}" ]; then
           echo "Downloading PHPCBF from: ${{ github.event.inputs.phpcbf_url }}"
           curl -L -o bin/phpcbf.phar "${{ github.event.inputs.phpcbf_url }}"
           chmod +x bin/phpcbf.phar
         fi
-        
+
         # Verify downloads
         php bin/phpcs.phar --version
         php bin/phpcbf.phar --version
-        
+
         # Commit PHPCS updates
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        
+
         git add bin/phpcs.phar bin/phpcbf.phar
-        
+
         if ! git diff --staged --quiet; then
           git commit -m "chore: 🔧 update PHPCS to ${{ github.event.inputs.phpcs_version }}
-        
+
         - Updated bin/phpcs.phar to version ${{ github.event.inputs.phpcs_version }}
         - Updated bin/phpcbf.phar to version ${{ github.event.inputs.phpcs_version }}
-        
+
         Source: https://github.com/squizlabs/PHP_CodeSniffer/releases/tag/${{ github.event.inputs.phpcs_version }}"
         fi
 
@@ -184,7 +184,7 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         path: artifacts
 
