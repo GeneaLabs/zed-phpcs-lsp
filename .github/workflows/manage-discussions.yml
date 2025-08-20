@@ -1,0 +1,72 @@
+name: Manage Discussions
+
+on:
+  discussion:
+    types: [created, edited, labeled]
+  discussion_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  discussions: write
+
+jobs:
+  manage-discussion:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Auto-escalate confirmed bugs
+      if: github.event.action == 'labeled' && contains(github.event.label.name, 'confirmed-bug')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: discussion } = await github.rest.discussions.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            discussion_number: context.payload.discussion.number
+          });
+          
+          // Create issue from discussion
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `[BUG] ${discussion.title}`,
+            body: `**Escalated from discussion:** ${discussion.html_url}\n\n${discussion.body}`,
+            labels: ['bug', 'escalated-from-discussion']
+          });
+          
+          // Add comment to discussion linking to issue
+          await github.rest.discussions.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            discussion_number: discussion.number,
+            body: `🔄 **Escalated to Issue:** This bug has been confirmed and escalated to issue #${issue.data.number} for tracking.\n\nWe'll continue updates there. Thanks for the report!`
+          });
+          
+          // Add escalated label to discussion
+          await github.rest.discussions.setLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            discussion_number: discussion.number,
+            labels: ['escalated-to-issue', 'confirmed-bug']
+          });
+
+    - name: Add helpful comment for new bug reports
+      if: github.event.action == 'created' && contains(github.event.discussion.labels, 'bug-report')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.discussions.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            discussion_number: context.payload.discussion.number,
+            body: `👋 Thanks for the bug report! 
+
+We'll investigate this and if confirmed, escalate it to an issue for tracking.
+
+**In the meantime:**
+- Make sure you're using the latest version of Zed
+- Check if restarting Zed helps
+- Look for any error messages in Zed's debug console
+
+We appreciate your help making the extension better! 🚀`
+          });

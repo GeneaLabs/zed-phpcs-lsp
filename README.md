@@ -1,193 +1,274 @@
-# 🎯 PHPCS LSP for Zed Editor
+# PHPCS LSP for Zed Editor
 
-> **Real-time PHP code quality checking** directly in your Zed editor with PHP_CodeSniffer integration
+> A Language Server Protocol implementation that brings PHP_CodeSniffer integration to Zed Editor
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
 [![Zed](https://img.shields.io/badge/Zed-Editor-blue?logo=zed&logoColor=white)](https://zed.dev)
 [![PHPCS](https://img.shields.io/badge/PHPCS-Compatible-green)](https://github.com/squizlabs/PHP_CodeSniffer)
 
-## ✨ Features
+This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time code style checking. It highlights violations as you code and supports various PHP coding standards including PSR-12, custom rulesets, and project-specific configurations.
 
-- 🔍 **Real-time Diagnostics** - See code style violations as you type
-- ⚡ **Zero Configuration** - Works out of the box with PSR-12 standards
-- 🎨 **Visual Feedback** - Red underlines for errors, yellow for warnings
-- 📦 **Self-contained** - Bundled PHPCS binaries, no external dependencies
-- 🔧 **Highly Configurable** - Support for custom rulesets and standards
-- 🚀 **Performance Optimized** - Uses stdin for fast, race-condition-free analysis
+## Features
 
-## 🚀 Quick Start
+- **Real-time diagnostics** - See code style violations as you type
+- **Zero configuration** - Works out of the box with PSR-12
+- **Multiple standards** - PSR-12, PSR-2, Squiz, custom rulesets
+- **Project awareness** - Automatically discovers phpcs.xml configuration
+- **Cross-platform** - Includes binaries for Linux, macOS, and Windows
+- **Flexible configuration** - Via Zed settings, environment variables, or project files
+
+## Quick Start
 
 ### Installation
 
-1. **Install the Extension**
-   ```bash
-   # Via Zed Extensions (coming soon)
-   # Or manual installation for development
-   ```
+```bash
+# Via Zed Extensions (coming soon)
+# For now: manual installation for development
+```
 
-2. **Open a PHP Project**
-   ```bash
-   zed your-php-project/
-   ```
+### Basic Usage
 
-3. **Start Coding!** 
-   The extension will automatically highlight code style violations:
+1. **Enable the language server** in your Zed settings.json:
 
-   ```php
-   <?php
-   // ❌ This will show errors
-   if($x==1){echo "test";}
-   
-   // ✅ This follows PSR-12
-   if ($x == 1) {
-       echo "test";
-   }
-   ```
+```json
+{
+  "languages": {
+    "PHP": {
+      "language_servers": ["intelephense", "phpcs"]
+    }
+  }
+}
+```
 
-## 📋 Supported Standards
+2. **Open any PHP project** and the extension will start analyzing your code:
 
-- **PSR-12** (default) - The extended coding style guide
-- **PSR-2** - Coding style guide (legacy)
-- **PSR-1** - Basic coding standard
-- **Squiz** - Comprehensive coding standard
-- **PEAR** - PEAR coding standard
-- **Zend** - Zend framework standard
-- **Custom** - Your own phpcs.xml configuration
+```php
+<?php
+// This will show underlines for style violations
+if($x==1){echo "test";}
 
-## ⚙️ Configuration
+// This follows PSR-12 and won't show any issues
+if ($x === 1) {
+    echo "test";
+}
+```
 
-### Project-level Configuration
+## Configuration
 
-Create a `phpcs.xml` or `.phpcs.xml` in your project root:
+> **Note:** The extension works without any configuration using PSR-12 standards and bundled PHPCS binaries.
+
+### Coding Standards
+
+<details>
+<summary><strong>Automatic Discovery</strong> (recommended)</summary>
+
+The extension looks for configuration in this order:
+
+1. **Project files** - `phpcs.xml`, `.phpcs.xml`, `phpcs.xml.dist`
+2. **Zed settings** - Custom configuration in settings.json
+3. **Environment variables** - `PHPCS_STANDARD`
+4. **Default** - PSR-12 standard
+
+</details>
+
+<details>
+<summary><strong>Zed Settings Configuration</strong></summary>
+
+Configure standards in your `settings.json`:
+
+```json
+{
+  "lsp": {
+    "phpcs": {
+      "settings": {
+        "standard": "PSR12"
+      }
+    }
+  }
+}
+```
+
+**Multiple standards:**
+```json
+{
+  "lsp": {
+    "phpcs": {
+      "settings": {
+        "standard": ["PSR12", "Squiz.Commenting"]
+      }
+    }
+  }
+}
+```
+
+**Custom ruleset path:**
+```json
+{
+  "lsp": {
+    "phpcs": {
+      "settings": {
+        "standard": "./custom-phpcs.xml"
+      }
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Environment Variables</strong></summary>
+
+```bash
+export PHPCS_STANDARD="PSR12"
+export PHPCS_PATH="/custom/path/to/phpcs"
+export PHPCBF_PATH="/custom/path/to/phpcbf"
+```
+
+</details>
+
+### PHPCS Executable
+
+<details>
+<summary><strong>Automatic Discovery</strong> (recommended)</summary>
+
+The extension finds PHPCS in this order:
+
+1. **Project composer** - `vendor/bin/phpcs`
+2. **Bundled PHAR** - `bin/phpcs.phar` (included with extension)
+3. **System PATH** - Global phpcs installation
+
+</details>
+
+<details>
+<summary><strong>Custom Paths</strong></summary>
+
+Specify custom PHPCS/PHPCBF paths in settings.json:
+
+```json
+{
+  "lsp": {
+    "phpcs": {
+      "settings": {
+        "phpcsPath": "/custom/path/to/phpcs",
+        "phpcbfPath": "/custom/path/to/phpcbf"
+      }
+    }
+  }
+}
+```
+
+</details>
+
+## Out-of-the-box Standards
+
+| Standard | Description |
+|----------|-------------|
+| **PSR-12** | Extended coding style (default) |
+| **PSR-2** | Coding style guide |
+| **PSR-1** | Basic coding standard |
+| **Squiz** | Comprehensive rules |
+| **PEAR** | PEAR coding standard |
+| **Zend** | Zend framework standard |
+| **Custom** | Your phpcs.xml ruleset |
+
+## Project Configuration
+
+Create a `phpcs.xml` in your project root for team consistency:
 
 ```xml
 <?xml version="1.0"?>
-<ruleset name="My Project Standard">
-    <description>Custom coding standard</description>
-    
-    <!-- Use PSR-12 as base -->
+<ruleset name="Project Standards">
+    <description>Custom coding standard for our project</description>
+
     <rule ref="PSR12"/>
-    
-    <!-- Add custom rules -->
+
+    <!-- Customize line length -->
     <rule ref="Generic.Files.LineLength">
         <properties>
             <property name="lineLimit" value="120"/>
         </properties>
     </rule>
-    
-    <!-- Exclude specific files/directories -->
+
+    <!-- Exclude directories -->
     <exclude-pattern>*/vendor/*</exclude-pattern>
     <exclude-pattern>*/storage/*</exclude-pattern>
 </ruleset>
 ```
 
-### Environment Variables
-
-```bash
-# Override the coding standard
-export PHPCS_STANDARD="PSR2"
-
-# Use project-specific PHPCS
-export PHPCS_PATH="/path/to/your/phpcs"
-```
-
-## 🔧 Development
+## Development
 
 ### Building from Source
-
+You only need to build the LSP during development.
 ```bash
-# Clone the repository
-git clone https://github.com/mikebronner/zed-phpcs-lsp.git
-cd zed-phpcs-lsp
-
-# Build the extension
-./build.sh
-
-# Install for development
-ln -s "$(pwd)" ~/.config/zed/extensions/phpcs-lsp
+cd lsp-server
+cargo build --release
+cp target/release/phpcs-lsp-server ../bin/phpcs-lsp-server
+chmod +x ../bin/phpcs-lsp-server
 ```
 
 ### Project Structure
 
 ```
 zed-phpcs-lsp/
-├── src/lib.rs              # Zed extension implementation
-├── lsp-server/src/main.rs  # LSP server implementation  
-├── extension.toml          # Extension metadata
-├── bin/                    # Bundled PHPCS binaries
-├── build.sh               # Build script
-└── test.php               # Test file for development
+├── src/lib.rs              # Zed extension (Rust → WASM)
+├── lsp-server/src/main.rs  # LSP server implementation
+├── bin/                    # Cross-platform binaries (auto-updated via CI)
+└── extension.toml          # Extension metadata
 ```
 
-## 🤝 Contributing
+### Contributing
 
-We welcome contributions! Here's how you can help:
+Contributions are welcome! Please feel free to:
 
-1. **🐛 Report Bugs** - Found an issue? [Open an issue](https://github.com/mikebronner/zed-phpcs-lsp/issues)
-2. **💡 Suggest Features** - Have an idea? We'd love to hear it!
-3. **🔧 Submit PRs** - Fix bugs or add features
-4. **📖 Improve Docs** - Help make our documentation better
+- Report bugs or request features via [GitHub Issues](https://github.com/GeneaLabs/zed-phpcs-lsp/issues)
+- Submit pull requests for improvements
+- Share feedback in [Discussions](https://github.com/GeneaLabs/zed-phpcs-lsp/discussions)
 
-### Development Setup
+## Troubleshooting
 
-```bash
-# Fork and clone the repo
-git clone https://github.com/YOUR_USERNAME/zed-phpcs-lsp.git
+<details>
+<summary><strong>Extension not working?</strong></summary>
 
-# Install Rust (if not already installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+1. Check Zed's debug console for error messages
+2. Verify PHPCS is accessible (custom paths must exist)
+3. Try restarting Zed after configuration changes
 
-# Add WASM target for Zed extensions
-rustup target add wasm32-wasip1
+</details>
 
-# Build and test
-./build.sh
-```
+<details>
+<summary><strong>No diagnostics showing?</strong></summary>
 
-## 📚 How It Works
+1. Ensure you're editing a `.php` file
+2. Check that your configured standard exists
+3. Test with a file containing obvious style violations
 
-This extension bridges PHP_CodeSniffer with Zed's Language Server Protocol:
+</details>
 
-1. **Real-time Analysis** - Content is sent via stdin to PHPCS for immediate analysis
-2. **LSP Integration** - PHPCS output is converted to LSP diagnostics
-3. **Visual Feedback** - Diagnostics are displayed as underlines in the editor
-4. **Performance** - Uses stdin to avoid file system race conditions
+<details>
+<summary><strong>Custom rules not working?</strong></summary>
 
-## 🆚 Comparison with Other Solutions
+1. Validate your `phpcs.xml` syntax
+2. Ensure paths are relative to your project root
+3. Test your configuration manually with `phpcs --config-show`
 
-| Feature | PHPCS LSP | VS Code PHP | PhpStorm |
-|---------|-----------|-------------|----------|
-| Real-time diagnostics | ✅ | ✅ | ✅ |
-| Zero configuration | ✅ | ❌ | ✅ |
-| Custom rulesets | ✅ | ✅ | ✅ |
-| Performance | ⚡ Fast | 🐌 Slow | ⚡ Fast |
-| Free | ✅ | ✅ | ❌ |
+</details>
 
-## 📖 Documentation
+## Resources & Credits
 
-- [Installation Guide](docs/installation.md) *(coming soon)*
-- [Configuration Reference](docs/configuration.md) *(coming soon)*
-- [Troubleshooting](docs/troubleshooting.md) *(coming soon)*
-- [API Reference](docs/api.md) *(coming soon)*
+### Learn More
+- [PHP_CodeSniffer Documentation](https://github.com/squizlabs/PHP_CodeSniffer/wiki)
+- [PSR Standards](https://www.php-fig.org/psr/)
+- [Zed Editor Documentation](https://zed.dev/docs)
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [PHP_CodeSniffer](https://github.com/squizlabs/PHP_CodeSniffer) - The amazing tool that powers this extension
-- [Zed Editor](https://zed.dev) - The lightning-fast collaborative editor
+### Built With
+- [PHP_CodeSniffer](https://github.com/squizlabs/PHP_CodeSniffer) - The excellent tool that powers code analysis
+- [Zed Editor](https://zed.dev) - The fast, collaborative editor
 - [Tower LSP](https://github.com/ebkalderon/tower-lsp) - Rust LSP framework
-- The PHP community for maintaining excellent coding standards
 
----
+## License
+This project is licensed under the [MIT License](LICENSE).
 
-<div align="center">
-
-**Made with ❤️ for the PHP community**
-
-[⭐ Star this repo](https://github.com/mikebronner/zed-phpcs-lsp) • [🐛 Report issues](https://github.com/mikebronner/zed-phpcs-lsp/issues) • [💬 Discussions](https://github.com/mikebronner/zed-phpcs-lsp/discussions)
-
-</div>
+-----
+**Made with ❤️ and lots of ☕ for the PHP community.**
