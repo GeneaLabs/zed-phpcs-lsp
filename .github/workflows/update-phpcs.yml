@@ -39,7 +39,7 @@ jobs:
         LATEST_VERSION=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
         LATEST_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "phpcs.phar") | .browser_download_url')
         PHPCBF_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "phpcbf.phar") | .browser_download_url')
-        
+
         echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
         echo "phpcs_url=$LATEST_URL" >> $GITHUB_OUTPUT
         echo "phpcbf_url=$PHPCBF_URL" >> $GITHUB_OUTPUT
@@ -51,7 +51,7 @@ jobs:
         CURRENT="${{ steps.current.outputs.version }}"
         LATEST="${{ steps.latest.outputs.version }}"
         FORCE="${{ github.event.inputs.force_update }}"
-        
+
         if [ "$FORCE" = "true" ] || [ "$CURRENT" != "$LATEST" ]; then
           echo "update_needed=true" >> $GITHUB_OUTPUT
           echo "Update needed: $CURRENT -> $LATEST"
@@ -77,5 +77,5 @@ jobs:
               "phpcbf_url": "${{ steps.latest.outputs.phpcbf_url }}"
             }
           }'
-        
+
         echo "Triggered build workflow with PHPCS update: ${{ steps.latest.outputs.version }}"
