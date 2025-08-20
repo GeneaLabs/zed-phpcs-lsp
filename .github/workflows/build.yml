@@ -242,5 +242,6 @@ jobs:
         - Windows x64 & ARM64"
           fi
 
+          git pull
           git push
         fi
