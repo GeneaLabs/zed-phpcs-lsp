@@ -1,8 +1,9 @@
 
 # Rust build artifacts
 target/
+extension.wasm
 
-# LSP server build artifacts  
+# LSP server build artifacts
 lsp-server/target/
 
 # Built binaries (removed - these are deliverables users need)
@@ -28,6 +29,7 @@ __pycache__/
 
 # Development/debug files
 .ropeproject/
-.claude/
+.claude*/
+.swarm/
 
 # Bundled PHPCS PHAR files (removed - now committing bin/ folder)

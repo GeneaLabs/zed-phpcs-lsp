@@ -1,0 +1,83 @@
+# Discussion/Issue Labels for PHPCS LSP Extension
+
+# Bug Tracking Flow
+- name: "bug-report"
+  color: "d73a4a"
+  description: "Initial bug report from discussion"
+
+- name: "needs-investigation"
+  color: "fbca04"
+  description: "Needs investigation to confirm if it's a bug"
+
+- name: "confirmed-bug" 
+  color: "d93f0b"
+  description: "Confirmed bug, ready to escalate to issue"
+
+- name: "escalated-to-issue"
+  color: "0052cc"
+  description: "Bug escalated to issue for tracking"
+
+# Feature Requests
+- name: "feature-request"
+  color: "a2eeef"
+  description: "New feature or enhancement request"
+
+- name: "enhancement"
+  color: "a2eeef" 
+  description: "Improvement to existing functionality"
+
+# General Categories
+- name: "question"
+  color: "d876e3"
+  description: "General question or help needed"
+
+- name: "documentation"
+  color: "0075ca"
+  description: "Documentation improvements"
+
+- name: "configuration"
+  color: "1d76db"
+  description: "Help with configuration or setup"
+
+# Priority Labels
+- name: "priority-high"
+  color: "b60205"
+  description: "High priority item"
+
+- name: "priority-medium"
+  color: "fbca04"
+  description: "Medium priority item"
+
+- name: "priority-low"
+  color: "0e8a16"
+  description: "Low priority item"
+
+# Status Labels
+- name: "in-progress"
+  color: "ededed"
+  description: "Currently being worked on"
+
+- name: "blocked"
+  color: "e99695"
+  description: "Blocked by external dependency"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be fixed/implemented"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "Duplicate of another issue/discussion"
+
+# Platform/Environment
+- name: "macos"
+  color: "f9d0c4"
+  description: "macOS specific"
+
+- name: "linux"
+  color: "f9d0c4"
+  description: "Linux specific"
+
+- name: "windows"
+  color: "f9d0c4"
+  description: "Windows specific"

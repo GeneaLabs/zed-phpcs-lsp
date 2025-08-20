@@ -1,0 +1,25 @@
+title: "General Discussion: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Welcome! This is the place for general questions, configuration help, or just chatting about the extension.
+
+  - type: textarea
+    id: topic
+    attributes:
+      label: "What would you like to discuss?"
+      description: "Your question, idea, or topic"
+      placeholder: "How do I configure...? / I'm having trouble with... / What do you think about...?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Additional context"
+      description: "Any relevant details, configuration, or background"
+      placeholder: "I'm working on a Laravel project... / My team uses... / I tried..."
+    validations:
+      required: false

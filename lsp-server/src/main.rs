@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command as ProcessCommand;
 use tokio::io::{stdin, stdout};
@@ -70,8 +71,15 @@ impl PhpcsLanguageServer {
         
         // Debug: Check if the PHPCS path actually exists
         if let Ok(metadata) = std::fs::metadata(&phpcs_path) {
-            eprintln!("PHPCS LSP: PHPCS binary exists, size: {} bytes, executable: {}", 
-                     metadata.len(), metadata.permissions().mode() & 0o111 != 0);
+            #[cfg(unix)]
+            {
+                eprintln!("PHPCS LSP: PHPCS binary exists, size: {} bytes, executable: {}", 
+                         metadata.len(), metadata.permissions().mode() & 0o111 != 0);
+            }
+            #[cfg(not(unix))]
+            {
+                eprintln!("PHPCS LSP: PHPCS binary exists, size: {} bytes", metadata.len());
+            }
         } else {
             eprintln!("PHPCS LSP: PHPCS binary does not exist at: {}", phpcs_path);
         }
