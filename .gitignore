@@ -1,6 +1,7 @@
 
 # Rust build artifacts
 target/
+extension.wasm
 
 # LSP server build artifacts
 lsp-server/target/
