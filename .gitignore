@@ -29,6 +29,7 @@ __pycache__/
 
 # Development/debug files
 .ropeproject/
-.claude/
+.claude*/
+.swarm/
 
 # Bundled PHPCS PHAR files (removed - now committing bin/ folder)

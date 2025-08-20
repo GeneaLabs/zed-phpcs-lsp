@@ -28,39 +28,17 @@ impl PhpcsLspServer {
     }
 
     fn get_platform_binary_name() -> String {
-        #[cfg(target_os = "windows")]
-        {
-            if cfg!(target_arch = "x86_64") {
-                "phpcs-lsp-server-windows-x64.exe".to_string()
-            } else if cfg!(target_arch = "aarch64") {
-                "phpcs-lsp-server-windows-arm64.exe".to_string()
-            } else {
-                "phpcs-lsp-server.exe".to_string()
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            if cfg!(target_arch = "aarch64") {
-                "phpcs-lsp-server-macos-arm64".to_string()
-            } else if cfg!(target_arch = "x86_64") {
-                "phpcs-lsp-server-macos-x64".to_string()
-            } else {
-                "phpcs-lsp-server".to_string()
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            if cfg!(target_arch = "x86_64") {
-                "phpcs-lsp-server-linux-x64".to_string()
-            } else if cfg!(target_arch = "aarch64") {
-                "phpcs-lsp-server-linux-arm64".to_string()
-            } else {
-                "phpcs-lsp-server".to_string()
-            }
-        }
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-        {
-            "phpcs-lsp-server".to_string()
+        let (os, arch) = zed::current_platform();
+        match (os, arch) {
+            (zed::Os::Windows, zed::Architecture::X8664) => "phpcs-lsp-server-windows-x64.exe".to_string(),
+            (zed::Os::Windows, zed::Architecture::Aarch64) => "phpcs-lsp-server-windows-arm64.exe".to_string(),
+            (zed::Os::Windows, _) => "phpcs-lsp-server.exe".to_string(),
+            (zed::Os::Mac, zed::Architecture::Aarch64) => "phpcs-lsp-server-macos-arm64".to_string(),
+            (zed::Os::Mac, zed::Architecture::X8664) => "phpcs-lsp-server-macos-x64".to_string(),
+            (zed::Os::Mac, _) => "phpcs-lsp-server".to_string(),
+            (zed::Os::Linux, zed::Architecture::X8664) => "phpcs-lsp-server-linux-x64".to_string(),
+            (zed::Os::Linux, zed::Architecture::Aarch64) => "phpcs-lsp-server-linux-arm64".to_string(),
+            (zed::Os::Linux, _) => "phpcs-lsp-server".to_string(),
         }
     }
 }
