@@ -1,4 +1,4 @@
-use zed_extension_api::{self as zed, Result};
+use zed_extension_api::{self as zed, settings::LspSettings, Result};
 use std::env;
 
 struct PhpcsLspExtension {
@@ -8,7 +8,7 @@ struct PhpcsLspExtension {
 struct PhpcsLspServer;
 
 impl PhpcsLspServer {
-    const LANGUAGE_SERVER_ID: &'static str = "phpcs-lsp-server";
+    const LANGUAGE_SERVER_ID: &'static str = "phpcs";
 
     fn new() -> Self {
         Self
@@ -28,41 +28,18 @@ impl PhpcsLspServer {
     }
 
     fn get_platform_binary_name() -> String {
-        #[cfg(target_os = "windows")]
-        {
-            if cfg!(target_arch = "x86_64") {
-                "phpcs-lsp-server-windows-x64.exe"
-            } else if cfg!(target_arch = "aarch64") {
-                "phpcs-lsp-server-windows-arm64.exe"
-            } else {
-                "phpcs-lsp-server.exe"
-            }
+        let (os, arch) = zed::current_platform();
+        match (os, arch) {
+            (zed::Os::Windows, zed::Architecture::X8664) => "phpcs-lsp-server-windows-x64.exe".to_string(),
+            (zed::Os::Windows, zed::Architecture::Aarch64) => "phpcs-lsp-server-windows-arm64.exe".to_string(),
+            (zed::Os::Windows, _) => "phpcs-lsp-server.exe".to_string(),
+            (zed::Os::Mac, zed::Architecture::Aarch64) => "phpcs-lsp-server-macos-arm64".to_string(),
+            (zed::Os::Mac, zed::Architecture::X8664) => "phpcs-lsp-server-macos-x64".to_string(),
+            (zed::Os::Mac, _) => "phpcs-lsp-server".to_string(),
+            (zed::Os::Linux, zed::Architecture::X8664) => "phpcs-lsp-server-linux-x64".to_string(),
+            (zed::Os::Linux, zed::Architecture::Aarch64) => "phpcs-lsp-server-linux-arm64".to_string(),
+            (zed::Os::Linux, _) => "phpcs-lsp-server".to_string(),
         }
-        #[cfg(target_os = "macos")]
-        {
-            if cfg!(target_arch = "aarch64") {
-                "phpcs-lsp-server-macos-arm64"
-            } else if cfg!(target_arch = "x86_64") {
-                "phpcs-lsp-server-macos-x64"
-            } else {
-                "phpcs-lsp-server"
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            if cfg!(target_arch = "x86_64") {
-                "phpcs-lsp-server-linux-x64"
-            } else if cfg!(target_arch = "aarch64") {
-                "phpcs-lsp-server-linux-arm64"
-            } else {
-                "phpcs-lsp-server"
-            }
-        }
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-        {
-            "phpcs-lsp-server"
-        }
-        .to_string()
     }
 }
 
@@ -97,50 +74,152 @@ impl zed::Extension for PhpcsLspExtension {
         eprintln!("🔧 PHPCS LSP: worktree path: {:?}", worktree.root_path());
         let mut options = zed::serde_json::Map::new();
         
-        // Try to find phpcs binary (bundled PHAR or user-provided)
-        if let Some(phpcs_path) = Self::find_phpcs_binary(worktree) {
-            eprintln!("PHPCS LSP: Found PHPCS: {}", phpcs_path);
-            options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path));
-        } else {
-            eprintln!("PHPCS LSP: No PHPCS found via worktree.which(), trying absolute path");
-            // Fallback: try to find bundled PHPCS using absolute path from worktree root
-            let worktree_root = worktree.root_path();
-            let worktree_path = std::path::Path::new(&worktree_root);
-            let bundled_phpcs = worktree_path.join("bin/phpcs.phar");
-            if bundled_phpcs.exists() {
-                let phpcs_path = bundled_phpcs.to_string_lossy().to_string();
-                eprintln!("PHPCS LSP: Found bundled PHPCS at absolute path: {}", phpcs_path);
-                options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path));
-            } else {
-                eprintln!("PHPCS LSP: No bundled PHPCS found at: {}", bundled_phpcs.display());
+        // Try to get user-configured settings first
+        let user_settings = LspSettings::for_worktree(language_server_id.as_ref(), worktree)
+            .ok()
+            .and_then(|lsp_settings| lsp_settings.settings.clone());
+        
+        // Check for user-configured PHPCS path from settings.json
+        let mut found_phpcs_path = false;
+        if let Some(settings) = user_settings.as_ref() {
+            if let Some(phpcs_path) = settings.get("phpcsPath").and_then(|v| v.as_str()) {
+                if !phpcs_path.trim().is_empty() {
+                    eprintln!("PHPCS LSP: Using custom PHPCS path from settings: {}", phpcs_path);
+                    options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path.to_string()));
+                    found_phpcs_path = true;
+                }
             }
         }
         
-        // Try to find phpcbf binary (PHIVE-managed PHAR or user-provided)
-        if let Some(phpcbf_path) = Self::find_phpcbf_binary(worktree) {
-            eprintln!("PHPCS LSP: Found PHPCBF: {}", phpcbf_path);
-            options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(phpcbf_path));
-        } else {
-            eprintln!("PHPCS LSP: No PHPCBF PHAR found");
+        // Fall back to environment variable if no settings configured
+        if !found_phpcs_path {
+            if let Ok(custom_phpcs_path) = env::var("PHPCS_PATH") {
+                if !custom_phpcs_path.trim().is_empty() {
+                    eprintln!("PHPCS LSP: Using custom PHPCS path from PHPCS_PATH env: {}", custom_phpcs_path);
+                    options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(custom_phpcs_path));
+                    found_phpcs_path = true;
+                }
+            }
+        }
+        
+        // Fall back to auto-discovery if no custom path specified
+        if !found_phpcs_path {
+            if let Some(phpcs_path) = Self::find_phpcs_binary(worktree) {
+                eprintln!("PHPCS LSP: Found PHPCS: {}", phpcs_path);
+                options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path));
+            } else {
+                eprintln!("PHPCS LSP: No PHPCS found via worktree.which(), trying absolute path");
+                // Fallback: try to find bundled PHPCS using absolute path from worktree root
+                let worktree_root = worktree.root_path();
+                let worktree_path = std::path::Path::new(&worktree_root);
+                let bundled_phpcs = worktree_path.join("bin/phpcs.phar");
+                if bundled_phpcs.exists() {
+                    let phpcs_path = bundled_phpcs.to_string_lossy().to_string();
+                    eprintln!("PHPCS LSP: Found bundled PHPCS at absolute path: {}", phpcs_path);
+                    options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path));
+                } else {
+                    eprintln!("PHPCS LSP: No bundled PHPCS found at: {}", bundled_phpcs.display());
+                }
+            }
+        }
+        
+        // Check for user-configured PHPCBF path from settings.json
+        let mut found_phpcbf_path = false;
+        if let Some(settings) = user_settings.as_ref() {
+            if let Some(phpcbf_path) = settings.get("phpcbfPath").and_then(|v| v.as_str()) {
+                if !phpcbf_path.trim().is_empty() {
+                    eprintln!("PHPCS LSP: Using custom PHPCBF path from settings: {}", phpcbf_path);
+                    options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(phpcbf_path.to_string()));
+                    found_phpcbf_path = true;
+                }
+            }
+        }
+        
+        // Fall back to environment variable if no settings configured
+        if !found_phpcbf_path {
+            if let Ok(custom_phpcbf_path) = env::var("PHPCBF_PATH") {
+                if !custom_phpcbf_path.trim().is_empty() {
+                    eprintln!("PHPCS LSP: Using custom PHPCBF path from PHPCBF_PATH env: {}", custom_phpcbf_path);
+                    options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(custom_phpcbf_path));
+                    found_phpcbf_path = true;
+                }
+            }
+        }
+        
+        // Fall back to auto-discovery if no custom path specified
+        if !found_phpcbf_path {
+            if let Some(phpcbf_path) = Self::find_phpcbf_binary(worktree) {
+                eprintln!("PHPCS LSP: Found PHPCBF: {}", phpcbf_path);
+                options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(phpcbf_path));
+            } else {
+                eprintln!("PHPCS LSP: No PHPCBF PHAR found");
+            }
         }
         
         // Try to find phpcs configuration file
-                if let Some(config_file) = Self::find_phpcs_config(worktree) {
-                    eprintln!("PHPCS LSP: Found phpcs config: {}", config_file);
-                    options.insert("configFile".to_string(), zed::serde_json::Value::String(config_file));
-                } else {
-                    eprintln!("PHPCS LSP: No phpcs config found");
-                }
+        if let Some(config_file) = Self::find_phpcs_config(worktree) {
+            eprintln!("PHPCS LSP: Found phpcs config: {}", config_file);
+            options.insert("configFile".to_string(), zed::serde_json::Value::String(config_file));
+        } else {
+            eprintln!("PHPCS LSP: No phpcs config found");
+        }
 
-                // Environment override for coding standard
-                if let Ok(env_standard) = env::var("PHPCS_STANDARD") {
-                    if !env_standard.trim().is_empty() {
-                        eprintln!("PHPCS LSP: Using standard from PHPCS_STANDARD env: {}", env_standard);
-                        options.insert("standard".to_string(), zed::serde_json::Value::String(env_standard));
+        // Check for user-configured coding standard from settings.json
+        let mut found_standard = false;
+        if let Some(settings) = user_settings.as_ref() {
+            // Support both string and array formats for standards
+            if let Some(standard_value) = settings.get("standard") {
+                match standard_value {
+                    // Single standard as string
+                    zed::serde_json::Value::String(standard) => {
+                        if !standard.trim().is_empty() {
+                            eprintln!("PHPCS LSP: Using standard from settings: {}", standard);
+                            options.insert("standard".to_string(), zed::serde_json::Value::String(standard.clone()));
+                            found_standard = true;
+                        }
+                    },
+                    // Multiple standards as array
+                    zed::serde_json::Value::Array(standards) => {
+                        let standard_strings: Vec<String> = standards
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .filter(|s| !s.trim().is_empty())
+                            .map(|s| s.to_string())
+                            .collect();
+                        
+                        if !standard_strings.is_empty() {
+                            let combined_standards = standard_strings.join(",");
+                            eprintln!("PHPCS LSP: Using multiple standards from settings: {}", combined_standards);
+                            options.insert("standard".to_string(), zed::serde_json::Value::String(combined_standards));
+                            found_standard = true;
+                        }
+                    },
+                    _ => {
+                        eprintln!("PHPCS LSP: Invalid standard format in settings (expected string or array)");
                     }
                 }
+            }
+        }
         
-                eprintln!("PHPCS LSP: Initialization options: {:?}", options);
+        // Fall back to environment variable for coding standard
+        if !found_standard {
+            if let Ok(env_standard) = env::var("PHPCS_STANDARD") {
+                if !env_standard.trim().is_empty() {
+                    eprintln!("PHPCS LSP: Using standard from PHPCS_STANDARD env: {}", env_standard);
+                    options.insert("standard".to_string(), zed::serde_json::Value::String(env_standard));
+                    found_standard = true;
+                }
+            }
+        }
+        
+        // Auto-discover standard if none specified and no config file found
+        if !found_standard && !options.contains_key("configFile") {
+            // Default to PSR12 if no configuration is found
+            eprintln!("PHPCS LSP: No standard specified and no config file found, defaulting to PSR12");
+            options.insert("standard".to_string(), zed::serde_json::Value::String("PSR12".to_string()));
+        }
+        
+        eprintln!("PHPCS LSP: Initialization options: {:?}", options);
         
         if options.is_empty() {
             Ok(None)
