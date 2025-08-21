@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bash
 set -e
 
 echo "🚀 Building PHPCS LSP Extension..."
 echo
 
-# Colors for output  
+# Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -46,10 +46,10 @@ fi
 
 # Verify PHPCS binaries
 print_status "Verifying PHPCS binaries..."
-if [ -d "bin" ] && [ -f "bin/phpcs" ] && [ -f "bin/phpcbf" ]; then
-    print_success "PHPCS binaries found in bin/ directory"
+if [ -d "bin" ] && [ -f "phpcs" ] && [ -f "phpcbf" ]; then
+    print_success "PHPCS binaries found in  directory"
 else
-    print_warning "PHPCS binaries not found in bin/ directory"
+    print_warning "PHPCS binaries not found in  directory"
 fi
 
 # Build Zed extension WASM
@@ -72,11 +72,11 @@ if [ -d "$ZED_WORK_DIR" ]; then
     print_status "Copying to Zed work directory for development..."
     cp ./phpcs-lsp-server "$ZED_WORK_DIR/"
     chmod +x "$ZED_WORK_DIR/phpcs-lsp-server"
-    
+
     if [ -d "bin" ]; then
         cp -r bin "$ZED_WORK_DIR/"
     fi
-    
+
     print_success "Development files copied to Zed work directory"
 fi
 
@@ -84,9 +84,9 @@ echo
 print_success "Build complete!"
 echo
 echo "📦 Generated files:"
-echo "  - LSP server: phpcs-lsp-server"  
+echo "  - LSP server: phpcs-lsp-server"
 echo "  - Extension WASM: extension.wasm"
-echo "  - PHPCS binaries: bin/"
+echo "  - PHPCS binaries: "
 echo
 echo "📋 Next steps:"
 echo "  1. Install/reload the extension in Zed"
