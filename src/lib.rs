@@ -200,9 +200,10 @@ impl zed::Extension for PhpcsLspExtension {
                 // Try to download PHPCS PHAR
                 eprintln!("PHPCS LSP: No local PHPCS found, attempting to download...");
                 match Self::download_phar_if_needed("phpcs.phar") {
-                    Ok(phar_path) => {
-                        eprintln!("PHPCS LSP: Downloaded PHPCS to: {}", phar_path);
-                        options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phar_path));
+                    Ok(_phar_path) => {
+                        eprintln!("PHPCS LSP: Downloaded PHPCS successfully");
+                        // Since the LSP server runs from the version directory, just provide the filename
+                        options.insert("phpcsPath".to_string(), zed::serde_json::Value::String("phpcs.phar".to_string()));
                     }
                     Err(e) => {
                         eprintln!("PHPCS LSP: Failed to download PHPCS: {}", e);
@@ -243,9 +244,10 @@ impl zed::Extension for PhpcsLspExtension {
                 // Try to download PHPCBF PHAR
                 eprintln!("PHPCS LSP: No local PHPCBF found, attempting to download...");
                 match Self::download_phar_if_needed("phpcbf.phar") {
-                    Ok(phar_path) => {
-                        eprintln!("PHPCS LSP: Downloaded PHPCBF to: {}", phar_path);
-                        options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(phar_path));
+                    Ok(_phar_path) => {
+                        eprintln!("PHPCS LSP: Downloaded PHPCBF successfully");
+                        // Since the LSP server runs from the version directory, just provide the filename
+                        options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String("phpcbf.phar".to_string()));
                     }
                     Err(e) => {
                         eprintln!("PHPCS LSP: Failed to download PHPCBF: {}", e);
