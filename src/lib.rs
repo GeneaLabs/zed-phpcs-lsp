@@ -1,30 +1,122 @@
 use zed_extension_api::{self as zed, settings::LspSettings, Result};
 use std::env;
+use std::fs;
 
 struct PhpcsLspExtension {
     phpcs_lsp: Option<PhpcsLspServer>,
 }
 
-struct PhpcsLspServer;
+struct PhpcsLspServer {
+    cached_binary_path: Option<String>,
+}
 
 impl PhpcsLspServer {
     const LANGUAGE_SERVER_ID: &'static str = "phpcs";
 
     fn new() -> Self {
-        Self
+        Self {
+            cached_binary_path: None,
+        }
     }
 
     fn language_server_command(
         &mut self,
         _language_server_id: &zed::LanguageServerId,
-        _worktree: &zed::Worktree,
+        worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let binary_name = Self::get_platform_binary_name();
+        let binary_path = self.language_server_binary_path(worktree)?;
         Ok(zed::Command {
-            command: format!("bin/{}", binary_name),
+            command: binary_path,
             args: vec![],
             env: Default::default(),
         })
+    }
+    
+    fn language_server_binary_path(&mut self, worktree: &zed::Worktree) -> Result<String> {
+        // Check if we have a cached binary path
+        if let Some(cached_path) = &self.cached_binary_path {
+            if fs::metadata(cached_path).is_ok() {
+                return Ok(cached_path.clone());
+            }
+        }
+
+        // Try to find the binary locally first (for development)
+        let binary_name = Self::get_platform_binary_name();
+        let local_binary_path = format!("bin/{}", binary_name);
+        if let Some(path) = worktree.which(&local_binary_path) {
+            self.cached_binary_path = Some(path.clone());
+            return Ok(path);
+        }
+
+        // Download the binary from GitHub
+        eprintln!("PHPCS LSP: Binary not found locally, downloading from GitHub...");
+        let downloaded_path = self.download_binary(&binary_name)?;
+        self.cached_binary_path = Some(downloaded_path.clone());
+        Ok(downloaded_path)
+    }
+    
+    fn download_binary(&self, binary_name: &str) -> Result<String> {
+        let binary_dir = "bin".to_string();
+        
+        // Ensure the bin directory exists
+        fs::create_dir_all(&binary_dir).map_err(|e| format!("Failed to create bin directory: {}", e))?;
+        
+        let binary_path = format!("{}/{}", binary_dir, binary_name);
+        
+        // Check if binary already exists
+        if fs::metadata(&binary_path).is_ok() {
+            eprintln!("PHPCS LSP: Binary already exists at {}", binary_path);
+            return Ok(binary_path);
+        }
+        
+        // Try to download from release assets first
+        let version = env!("CARGO_PKG_VERSION");
+        let (os, _arch) = zed::current_platform();
+        let archive_ext = match os {
+            zed::Os::Windows => "zip",
+            _ => "tar.gz",
+        };
+        let archive_name = format!("{}.{}", binary_name, archive_ext);
+        
+        let release_url = format!(
+            "https://github.com/GeneaLabs/zed-phpcs-lsp/releases/download/v{}/{}",
+            version,
+            archive_name
+        );
+        
+        eprintln!("PHPCS LSP: Attempting to download from release: {}", release_url);
+        
+        // Try downloading from release
+        let file_type = match os {
+            zed::Os::Windows => zed::DownloadedFileType::Zip,
+            _ => zed::DownloadedFileType::GzipTar,
+        };
+        
+        // Download the archive from release
+        zed::download_file(&release_url, &binary_dir, file_type)
+            .map_err(|e| format!("Failed to download binary from release: {}. Please ensure the release v{} exists with assets.", e, version))?;
+        
+        // After extraction, the file should be in the bin directory
+        if !fs::metadata(&binary_path).is_ok() {
+            return Err(format!("Binary not found after extraction. Expected at: {}", binary_path));
+        }
+        
+        eprintln!("PHPCS LSP: Successfully downloaded and extracted binary");
+        
+        // Make the binary executable on Unix-like systems
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = fs::metadata(&binary_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&binary_path, perms)
+                    .map_err(|e| format!("Failed to set binary permissions: {}", e))?;
+            }
+        }
+        
+        eprintln!("PHPCS LSP: Binary downloaded successfully to {}", binary_path);
+        Ok(binary_path)
     }
 
     fn get_platform_binary_name() -> String {
@@ -230,6 +322,59 @@ impl zed::Extension for PhpcsLspExtension {
 }
 
 impl PhpcsLspExtension {
+    
+    fn download_phar_if_needed(phar_name: &str) -> Result<String> {
+        let phar_dir = "bin".to_string();
+        
+        // Ensure the bin directory exists
+        fs::create_dir_all(&phar_dir).map_err(|e| format!("Failed to create bin directory: {}", e))?;
+        
+        let phar_path = format!("{}/{}", phar_dir, phar_name);
+        
+        // Check if PHAR already exists
+        if fs::metadata(&phar_path).is_ok() {
+            eprintln!("PHPCS LSP: {} already exists at {}", phar_name, phar_path);
+            return Ok(phar_path);
+        }
+        
+        // Try to download from release assets first
+        let version = env!("CARGO_PKG_VERSION");
+        let archive_name = format!("{}.tar.gz", phar_name);
+        
+        let release_url = format!(
+            "https://github.com/GeneaLabs/zed-phpcs-lsp/releases/download/v{}/{}",
+            version,
+            archive_name
+        );
+        
+        eprintln!("PHPCS LSP: Attempting to download {} from release: {}", phar_name, release_url);
+        
+        // Download the archive from release
+        zed::download_file(&release_url, &phar_dir, zed::DownloadedFileType::GzipTar)
+            .map_err(|e| format!("Failed to download {} from release: {}. Please ensure the release v{} exists with assets.", phar_name, e, version))?;
+        
+        // After extraction, the file should be in the bin directory
+        if !fs::metadata(&phar_path).is_ok() {
+            return Err(format!("{} not found after extraction. Expected at: {}", phar_name, phar_path));
+        }
+        
+        eprintln!("PHPCS LSP: Successfully downloaded and extracted {}", phar_name);
+        
+        // Make the PHAR executable on Unix-like systems
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = fs::metadata(&phar_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&phar_path, perms)
+                    .map_err(|e| format!("Failed to set {} permissions: {}", phar_name, e))?;
+            }
+        }
+        
+        eprintln!("PHPCS LSP: {} downloaded successfully to {}", phar_name, phar_path);
+        Ok(phar_path)
+    }
 
     fn find_phpcs_binary(worktree: &zed::Worktree) -> Option<String> {
         eprintln!("PHPCS LSP: Searching for PHPCS binary...");
@@ -246,8 +391,18 @@ impl PhpcsLspExtension {
             return Some(path);
         }
         
-        eprintln!("PHPCS LSP: No PHPCS found, will use system phpcs");
-        None
+        // Try to download PHPCS PHAR if not found
+        eprintln!("PHPCS LSP: No local PHPCS found, attempting to download...");
+        match Self::download_phar_if_needed("phpcs.phar") {
+            Ok(path) => {
+                eprintln!("PHPCS LSP: Using downloaded PHPCS at: {}", path);
+                Some(path)
+            }
+            Err(e) => {
+                eprintln!("PHPCS LSP: Failed to download PHPCS: {}", e);
+                None
+            }
+        }
     }
 
     fn find_phpcbf_binary(worktree: &zed::Worktree) -> Option<String> {
@@ -265,8 +420,18 @@ impl PhpcsLspExtension {
             return Some(path);
         }
         
-        eprintln!("PHPCS LSP: No PHPCBF found");
-        None
+        // Try to download PHPCBF PHAR if not found
+        eprintln!("PHPCS LSP: No local PHPCBF found, attempting to download...");
+        match Self::download_phar_if_needed("phpcbf.phar") {
+            Ok(path) => {
+                eprintln!("PHPCS LSP: Using downloaded PHPCBF at: {}", path);
+                Some(path)
+            }
+            Err(e) => {
+                eprintln!("PHPCS LSP: Failed to download PHPCBF: {}", e);
+                None
+            }
+        }
     }
     
     fn find_phpcs_config(worktree: &zed::Worktree) -> Option<String> {
