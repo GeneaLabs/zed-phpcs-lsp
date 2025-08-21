@@ -168,91 +168,25 @@ impl zed::Extension for PhpcsLspExtension {
             .ok()
             .and_then(|lsp_settings| lsp_settings.settings.clone());
         
-        // Check for user-configured PHPCS path from settings.json
-        let mut found_phpcs_path = false;
-        if let Some(settings) = user_settings.as_ref() {
-            if let Some(phpcs_path) = settings.get("phpcsPath").and_then(|v| v.as_str()) {
-                if !phpcs_path.trim().is_empty() {
-                    eprintln!("PHPCS LSP: Using custom PHPCS path from settings: {}", phpcs_path);
-                    options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path.to_string()));
-                    found_phpcs_path = true;
-                }
+        // Download PHPCS PHAR to LSP server directory - LSP server will find it automatically
+        eprintln!("PHPCS LSP: Ensuring PHPCS PHAR is available in LSP server directory...");
+        match Self::download_phar_if_needed("phpcs.phar") {
+            Ok(_phar_path) => {
+                eprintln!("PHPCS LSP: PHPCS PHAR available for LSP server");
+            }
+            Err(e) => {
+                eprintln!("PHPCS LSP: Failed to download PHPCS PHAR: {}", e);
             }
         }
         
-        // Fall back to environment variable if no settings configured
-        if !found_phpcs_path {
-            if let Ok(custom_phpcs_path) = env::var("PHPCS_PATH") {
-                if !custom_phpcs_path.trim().is_empty() {
-                    eprintln!("PHPCS LSP: Using custom PHPCS path from PHPCS_PATH env: {}", custom_phpcs_path);
-                    options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(custom_phpcs_path));
-                    found_phpcs_path = true;
-                }
+        // Download PHPCBF PHAR to LSP server directory - LSP server will find it automatically  
+        eprintln!("PHPCS LSP: Ensuring PHPCBF PHAR is available in LSP server directory...");
+        match Self::download_phar_if_needed("phpcbf.phar") {
+            Ok(_phar_path) => {
+                eprintln!("PHPCS LSP: PHPCBF PHAR available for LSP server");
             }
-        }
-        
-        // Fall back to auto-discovery if no custom path specified
-        if !found_phpcs_path {
-            if let Some(phpcs_path) = Self::find_phpcs_binary(worktree) {
-                eprintln!("PHPCS LSP: Found PHPCS: {}", phpcs_path);
-                options.insert("phpcsPath".to_string(), zed::serde_json::Value::String(phpcs_path));
-            } else {
-                // Try to download PHPCS PHAR
-                eprintln!("PHPCS LSP: No local PHPCS found, attempting to download...");
-                match Self::download_phar_if_needed("phpcs.phar") {
-                    Ok(_phar_path) => {
-                        eprintln!("PHPCS LSP: Downloaded PHPCS successfully");
-                        // Since the LSP server runs from the version directory, just provide the filename
-                        options.insert("phpcsPath".to_string(), zed::serde_json::Value::String("phpcs.phar".to_string()));
-                    }
-                    Err(e) => {
-                        eprintln!("PHPCS LSP: Failed to download PHPCS: {}", e);
-                    }
-                }
-            }
-        }
-        
-        // Check for user-configured PHPCBF path from settings.json
-        let mut found_phpcbf_path = false;
-        if let Some(settings) = user_settings.as_ref() {
-            if let Some(phpcbf_path) = settings.get("phpcbfPath").and_then(|v| v.as_str()) {
-                if !phpcbf_path.trim().is_empty() {
-                    eprintln!("PHPCS LSP: Using custom PHPCBF path from settings: {}", phpcbf_path);
-                    options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(phpcbf_path.to_string()));
-                    found_phpcbf_path = true;
-                }
-            }
-        }
-        
-        // Fall back to environment variable if no settings configured
-        if !found_phpcbf_path {
-            if let Ok(custom_phpcbf_path) = env::var("PHPCBF_PATH") {
-                if !custom_phpcbf_path.trim().is_empty() {
-                    eprintln!("PHPCS LSP: Using custom PHPCBF path from PHPCBF_PATH env: {}", custom_phpcbf_path);
-                    options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(custom_phpcbf_path));
-                    found_phpcbf_path = true;
-                }
-            }
-        }
-        
-        // Fall back to auto-discovery if no custom path specified
-        if !found_phpcbf_path {
-            if let Some(phpcbf_path) = Self::find_phpcbf_binary(worktree) {
-                eprintln!("PHPCS LSP: Found PHPCBF: {}", phpcbf_path);
-                options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String(phpcbf_path));
-            } else {
-                // Try to download PHPCBF PHAR
-                eprintln!("PHPCS LSP: No local PHPCBF found, attempting to download...");
-                match Self::download_phar_if_needed("phpcbf.phar") {
-                    Ok(_phar_path) => {
-                        eprintln!("PHPCS LSP: Downloaded PHPCBF successfully");
-                        // Since the LSP server runs from the version directory, just provide the filename
-                        options.insert("phpcbfPath".to_string(), zed::serde_json::Value::String("phpcbf.phar".to_string()));
-                    }
-                    Err(e) => {
-                        eprintln!("PHPCS LSP: Failed to download PHPCBF: {}", e);
-                    }
-                }
+            Err(e) => {
+                eprintln!("PHPCS LSP: Failed to download PHPCBF PHAR: {}", e);
             }
         }
         

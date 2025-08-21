@@ -13,14 +13,12 @@ use url::Url;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct InitializationOptions {
-    #[serde(rename = "phpcsPath")]
-    phpcs_path: Option<String>,
+    // No longer using phpcsPath - LSP server finds PHPCS automatically
 }
 
 #[derive(Debug)]
 struct PhpcsLanguageServer {
     client: Client,
-    phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     open_docs: std::sync::Arc<std::sync::RwLock<HashMap<Url, String>>>,
 }
 
@@ -28,34 +26,31 @@ impl PhpcsLanguageServer {
     fn new(client: Client) -> Self {
         Self {
             client,
-            phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
             open_docs: std::sync::Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
     }
 
     async fn run_phpcs(&self, uri: &Url, file_path: &str, content: Option<&str>) -> Result<Vec<Diagnostic>> {
-        let phpcs_path = {
-            let path_guard = self.phpcs_path.read().unwrap();
-            path_guard.clone().unwrap_or_else(|| {
-                eprintln!("PHPCS LSP: No phpcsPath provided via initialization options");
-
-                // Try to find bundled PHPCS PHAR relative to LSP server
-                if let Ok(current_exe) = std::env::current_exe() {
-                    if let Some(exe_dir) = current_exe.parent() {
-                        // Look for PHPCS PHAR in same directory as LSP server
-                        let bundled_phpcs = exe_dir.join("phpcs.phar");
-                        eprintln!("PHPCS LSP: Checking for PHPCS at: {}", bundled_phpcs.display());
-
-                        if bundled_phpcs.exists() {
-                            eprintln!("PHPCS LSP: Found bundled PHPCS PHAR in LSP directory");
-                            return bundled_phpcs.to_string_lossy().to_string();
-                        }
-                    }
+        // Always look for PHPCS in the same directory as the LSP server
+        let phpcs_path = if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(exe_dir) = current_exe.parent() {
+                let bundled_phpcs = exe_dir.join("phpcs.phar");
+                eprintln!("PHPCS LSP: Looking for PHPCS at: {}", bundled_phpcs.display());
+                
+                if bundled_phpcs.exists() {
+                    eprintln!("PHPCS LSP: Found PHPCS PHAR in LSP directory");
+                    bundled_phpcs.to_string_lossy().to_string()
+                } else {
+                    eprintln!("PHPCS LSP: No PHPCS PHAR found, trying system phpcs");
+                    "phpcs".to_string()
                 }
-
-                eprintln!("PHPCS LSP: No bundled PHPCS found, trying system phpcs");
+            } else {
+                eprintln!("PHPCS LSP: Could not get LSP server directory");
                 "phpcs".to_string()
-            })
+            }
+        } else {
+            eprintln!("PHPCS LSP: Could not get current executable path");
+            "phpcs".to_string()
         };
 
         eprintln!("PHPCS LSP: Using PHPCS path: {}", phpcs_path);
@@ -372,19 +367,9 @@ impl LanguageServer for PhpcsLanguageServer {
 
         if let Some(options) = params.initialization_options {
             eprintln!("PHPCS LSP: Received initialization options: {:?}", options);
-            if let Ok(init_opts) = serde_json::from_value::<InitializationOptions>(options) {
-                eprintln!("PHPCS LSP: Parsed initialization options successfully");
-                if let Some(ref phpcs_path) = init_opts.phpcs_path {
-                    eprintln!("PHPCS LSP: Setting phpcsPath to: {}", phpcs_path);
-                    *self.phpcs_path.write().unwrap() = Some(phpcs_path.clone());
-                } else {
-                    eprintln!("PHPCS LSP: No phpcsPath in initialization options");
-                }
-            } else {
-                eprintln!("PHPCS LSP: Failed to parse initialization options");
-            }
+            // Initialization options can be used for future configuration if needed
         } else {
-            eprintln!("PHPCS LSP: No initialization options received");
+            eprintln!("PHPCS LSP: No initialization options provided");
         }
 
         Ok(InitializeResult {
