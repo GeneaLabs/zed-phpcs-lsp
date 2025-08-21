@@ -42,22 +42,13 @@ impl PhpcsLanguageServer {
                 // Try to find bundled PHPCS PHAR relative to LSP server
                 if let Ok(current_exe) = std::env::current_exe() {
                     if let Some(exe_dir) = current_exe.parent() {
-                        // Look for PHPCS PHAR in bin subdirectory
-                        let bundled_phpcs = exe_dir.join("bin").join("phpcs.phar");
-                        eprintln!("PHPCS LSP: Checking for bundled PHPCS at: {}", bundled_phpcs.display());
+                        // Look for PHPCS PHAR in same directory as LSP server
+                        let bundled_phpcs = exe_dir.join("phpcs.phar");
+                        eprintln!("PHPCS LSP: Checking for PHPCS at: {}", bundled_phpcs.display());
                         
                         if bundled_phpcs.exists() {
-                            eprintln!("PHPCS LSP: Found bundled PHPCS PHAR");
-                            return bundled_phpcs.to_string_lossy().to_string();
-                        }
-                        
-                        // Also try in same directory as LSP server
-                        let bundled_phpcs2 = exe_dir.join("phpcs.phar");
-                        eprintln!("PHPCS LSP: Checking for PHPCS at: {}", bundled_phpcs2.display());
-                        
-                        if bundled_phpcs2.exists() {
                             eprintln!("PHPCS LSP: Found bundled PHPCS PHAR in LSP directory");
-                            return bundled_phpcs2.to_string_lossy().to_string();
+                            return bundled_phpcs.to_string_lossy().to_string();
                         }
                     }
                 }
