@@ -119,6 +119,7 @@ jobs:
 
   build-lsp-server:
     name: Build LSP Server
+    needs: update-version
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
