@@ -10,6 +10,113 @@ on:
         required: true
 
 jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Extract version from release tag
+        id: extract_version
+        run: |
+          # Remove 'v' prefix if present (e.g., v1.2.3 -> 1.2.3)
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Extracted version: ${VERSION}"
+
+      - name: Update versions and lock files
+        run: |
+          # Update TOML versions
+          sed -i 's/^version = "[^"]*"/version = "${{ steps.extract_version.outputs.version }}"/' Cargo.toml
+          echo "Updated root Cargo.toml version to ${{ steps.extract_version.outputs.version }}"
+
+          sed -i 's/^version = "[^"]*"/version = "${{ steps.extract_version.outputs.version }}"/' extension.toml
+          echo "Updated extension.toml version to ${{ steps.extract_version.outputs.version }}"
+
+          sed -i 's/^version = "[^"]*"/version = "${{ steps.extract_version.outputs.version }}"/' lsp-server/Cargo.toml
+          echo "Updated lsp-server/Cargo.toml version to ${{ steps.extract_version.outputs.version }}"
+
+          # Update Cargo.lock files
+          cargo update --manifest-path Cargo.toml
+          echo "Updated root Cargo.lock"
+
+          cargo update --manifest-path lsp-server/Cargo.toml
+          echo "Updated lsp-server/Cargo.lock"
+
+      - name: Verify changes
+        run: |
+          echo "=== Root Cargo.toml ==="
+          grep "^version =" Cargo.toml
+          echo "=== extension.toml ==="
+          grep "^version =" extension.toml
+          echo "=== lsp-server/Cargo.toml ==="
+          grep "^version =" lsp-server/Cargo.toml
+
+      - name: Commit and push changes
+        id: commit_changes
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Check if there are any changes to commit
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+            echo "new_commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          else
+            git add -A
+            git commit -m "chore: 🔖 Update version to ${{ steps.extract_version.outputs.version }}."
+            git push origin main
+            NEW_COMMIT_SHA=$(git rev-parse HEAD)
+            echo "new_commit_sha=${NEW_COMMIT_SHA}" >> $GITHUB_OUTPUT
+            echo "All changed files updated and pushed to main branch"
+            echo "New commit SHA: ${NEW_COMMIT_SHA}"
+          fi
+
+      - name: Update tag and release
+        if: steps.commit_changes.outputs.new_commit_sha != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          RELEASE_ID="${{ github.event.release.id }}"
+          FINAL_COMMIT_SHA="${{ steps.commit_changes.outputs.new_commit_sha }}"
+
+          echo "Updating tag ${TAG_NAME} to point to commit ${FINAL_COMMIT_SHA}"
+
+          # Update the tag to point to the new commit
+          curl -L \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/${TAG_NAME}" \
+            -d "{\"sha\":\"${FINAL_COMMIT_SHA}\",\"force\":true}"
+
+          echo "Updated tag ${TAG_NAME} to commit ${FINAL_COMMIT_SHA}"
+
+          # Update the release to point to the new commit
+          curl -L \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}" \
+            -d "{\"tag_name\":\"${TAG_NAME}\",\"target_commitish\":\"${FINAL_COMMIT_SHA}\"}"
+
+          echo "Updated release ${RELEASE_ID} to point to commit ${FINAL_COMMIT_SHA}"
+          echo "Version update complete!"
+
   build-lsp-server:
     name: Build LSP Server
     runs-on: ${{ matrix.os }}
@@ -105,7 +212,7 @@ jobs:
   download-phars:
     name: Download and Package PHAR Files
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -114,10 +221,10 @@ jobs:
           # Download latest stable PHPCS
           curl -L https://github.com/squizlabs/PHP_CodeSniffer/releases/latest/download/phpcs.phar -o phpcs.phar
           curl -L https://github.com/squizlabs/PHP_CodeSniffer/releases/latest/download/phpcbf.phar -o phpcbf.phar
-          
+
           # Make them executable
           chmod +x phpcs.phar phpcbf.phar
-          
+
           # Verify they work
           php phpcs.phar --version
           php phpcbf.phar --version
