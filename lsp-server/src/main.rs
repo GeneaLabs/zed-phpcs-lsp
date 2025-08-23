@@ -13,13 +13,14 @@ use url::Url;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct InitializationOptions {
-    // No longer using phpcsPath - LSP server finds PHPCS automatically
+    standard: Option<String>,
 }
 
 #[derive(Debug)]
 struct PhpcsLanguageServer {
     client: Client,
     open_docs: std::sync::Arc<std::sync::RwLock<HashMap<Url, String>>>,
+    standard: std::sync::Arc<std::sync::RwLock<String>>,
 }
 
 impl PhpcsLanguageServer {
@@ -27,6 +28,7 @@ impl PhpcsLanguageServer {
         Self {
             client,
             open_docs: std::sync::Arc::new(std::sync::RwLock::new(HashMap::new())),
+            standard: std::sync::Arc::new(std::sync::RwLock::new("PSR1,PSR2,PSR12".to_string())),
         }
     }
 
@@ -73,8 +75,14 @@ impl PhpcsLanguageServer {
         let mut cmd = ProcessCommand::new(&phpcs_path);
         cmd.arg("--report=json")
            .arg("--no-colors")
-           .arg("-q")
-           .arg("--standard=PSR12");
+           .arg("-q");
+
+        // Add the standard/config file
+        let standard = {
+            let standard_guard = self.standard.read().unwrap();
+            standard_guard.clone()
+        };
+        cmd.arg(format!("--standard={}", standard));
 
         if let Some(text) = content {
             cmd.arg("-");
@@ -367,9 +375,22 @@ impl LanguageServer for PhpcsLanguageServer {
 
         if let Some(options) = params.initialization_options {
             eprintln!("PHPCS LSP: Received initialization options: {:?}", options);
-            // Initialization options can be used for future configuration if needed
+            
+            // Parse initialization options
+            if let Ok(init_options) = serde_json::from_value::<InitializationOptions>(options) {
+                if let Some(standard) = init_options.standard {
+                    eprintln!("PHPCS LSP: Using custom standard/config: {}", standard);
+                    if let Ok(mut standard_guard) = self.standard.write() {
+                        *standard_guard = standard;
+                    }
+                } else {
+                    eprintln!("PHPCS LSP: No standard specified, using default PSR1,PSR2,PSR12");
+                }
+            } else {
+                eprintln!("PHPCS LSP: Failed to parse initialization options");
+            }
         } else {
-            eprintln!("PHPCS LSP: No initialization options provided");
+            eprintln!("PHPCS LSP: No initialization options provided, using default PSR1,PSR2,PSR12");
         }
 
         Ok(InitializeResult {

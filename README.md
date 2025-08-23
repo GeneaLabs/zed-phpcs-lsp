@@ -12,7 +12,7 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 ## Features
 
 - **Real-time diagnostics** - See code style violations as you type
-- **Zero configuration** - Works out of the box with PSR-12
+- **Zero configuration** - Works out of the box with PSR1,PSR2,PSR12
 - **Multiple standards** - PSR-12, PSR-2, Squiz, custom rulesets
 - **Project awareness** - Automatically discovers phpcs.xml configuration
 - **Cross-platform** - Includes binaries for Linux, macOS, and Windows
@@ -56,19 +56,23 @@ if ($x === 1) {
 
 ## Configuration
 
-> **Note:** The extension works without any configuration using PSR-12 standards and bundled PHPCS binaries.
+> **Note:** The extension works without any configuration using PSR1,PSR2,PSR12 standards and bundled PHPCS binaries.
 
 ### Coding Standards
 
 <details>
 <summary><strong>Automatic Discovery</strong> (recommended)</summary>
 
-The extension looks for configuration in this order:
+The extension follows **PHP_CodeSniffer's native discovery behavior** with this priority order:
 
-1. **Project files** - `phpcs.xml`, `.phpcs.xml`, `phpcs.xml.dist`
-2. **Zed settings** - Custom configuration in settings.json
+1. **Project config files** (discovered automatically, same as PHPCS):
+   - `.phpcs.xml` (highest priority)
+   - `phpcs.xml`
+   - `.phpcs.xml.dist`
+   - `phpcs.xml.dist` (lowest config file priority)
+2. **Zed settings** - Custom configuration in settings.json  
 3. **Environment variables** - `PHPCS_STANDARD`
-4. **Default** - PSR-12 standard
+4. **Default fallback** - PSR1,PSR2,PSR12 standards
 
 </details>
 
@@ -165,7 +169,8 @@ Specify custom PHPCS/PHPCBF paths in settings.json:
 
 | Standard | Description |
 |----------|-------------|
-| **PSR-12** | Extended coding style (default) |
+| **PSR1,PSR2,PSR12** | Combined standards (default) |
+| **PSR-12** | Extended coding style |
 | **PSR-2** | Coding style guide |
 | **PSR-1** | Basic coding standard |
 | **Squiz** | Comprehensive rules |
@@ -175,7 +180,12 @@ Specify custom PHPCS/PHPCBF paths in settings.json:
 
 ## Project Configuration
 
-Create a `phpcs.xml` in your project root for team consistency:
+Create a `phpcs.xml` in your project root for team consistency. The extension will automatically discover and use any of these files (in priority order):
+
+- `.phpcs.xml` (typically for local overrides, often gitignored)
+- `phpcs.xml` (main project configuration) 
+- `.phpcs.xml.dist` (distributable version, lower priority)
+- `phpcs.xml.dist` (template version, lowest priority)
 
 ```xml
 <?xml version="1.0"?>

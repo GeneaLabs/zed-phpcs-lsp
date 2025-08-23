@@ -190,67 +190,67 @@ impl zed::Extension for PhpcsLspExtension {
             }
         }
         
-        // Try to find phpcs configuration file
+        // Determine standard/config to use (priority order: config file -> settings -> env -> default)
+        let mut standard_to_use: Option<String> = None;
+        
+        // Try to find phpcs configuration file first (highest priority)
         if let Some(config_file) = Self::find_phpcs_config(worktree) {
-            eprintln!("PHPCS LSP: Found phpcs config: {}", config_file);
-            options.insert("configFile".to_string(), zed::serde_json::Value::String(config_file));
-        } else {
-            eprintln!("PHPCS LSP: No phpcs config found");
+            eprintln!("PHPCS LSP: Found phpcs config file: {}", config_file);
+            standard_to_use = Some(config_file);
         }
-
+        
         // Check for user-configured coding standard from settings.json
-        let mut found_standard = false;
-        if let Some(settings) = user_settings.as_ref() {
-            // Support both string and array formats for standards
-            if let Some(standard_value) = settings.get("standard") {
-                match standard_value {
-                    // Single standard as string
-                    zed::serde_json::Value::String(standard) => {
-                        if !standard.trim().is_empty() {
-                            eprintln!("PHPCS LSP: Using standard from settings: {}", standard);
-                            options.insert("standard".to_string(), zed::serde_json::Value::String(standard.clone()));
-                            found_standard = true;
+        if standard_to_use.is_none() {
+            if let Some(settings) = user_settings.as_ref() {
+                // Support both string and array formats for standards
+                if let Some(standard_value) = settings.get("standard") {
+                    match standard_value {
+                        // Single standard as string
+                        zed::serde_json::Value::String(standard) => {
+                            if !standard.trim().is_empty() {
+                                eprintln!("PHPCS LSP: Using standard from settings: {}", standard);
+                                standard_to_use = Some(standard.clone());
+                            }
+                        },
+                        // Multiple standards as array
+                        zed::serde_json::Value::Array(standards) => {
+                            let standard_strings: Vec<String> = standards
+                                .iter()
+                                .filter_map(|v| v.as_str())
+                                .filter(|s| !s.trim().is_empty())
+                                .map(|s| s.to_string())
+                                .collect();
+                            
+                            if !standard_strings.is_empty() {
+                                let combined_standards = standard_strings.join(",");
+                                eprintln!("PHPCS LSP: Using multiple standards from settings: {}", combined_standards);
+                                standard_to_use = Some(combined_standards);
+                            }
+                        },
+                        _ => {
+                            eprintln!("PHPCS LSP: Invalid standard format in settings (expected string or array)");
                         }
-                    },
-                    // Multiple standards as array
-                    zed::serde_json::Value::Array(standards) => {
-                        let standard_strings: Vec<String> = standards
-                            .iter()
-                            .filter_map(|v| v.as_str())
-                            .filter(|s| !s.trim().is_empty())
-                            .map(|s| s.to_string())
-                            .collect();
-                        
-                        if !standard_strings.is_empty() {
-                            let combined_standards = standard_strings.join(",");
-                            eprintln!("PHPCS LSP: Using multiple standards from settings: {}", combined_standards);
-                            options.insert("standard".to_string(), zed::serde_json::Value::String(combined_standards));
-                            found_standard = true;
-                        }
-                    },
-                    _ => {
-                        eprintln!("PHPCS LSP: Invalid standard format in settings (expected string or array)");
                     }
                 }
             }
         }
         
         // Fall back to environment variable for coding standard
-        if !found_standard {
+        if standard_to_use.is_none() {
             if let Ok(env_standard) = env::var("PHPCS_STANDARD") {
                 if !env_standard.trim().is_empty() {
                     eprintln!("PHPCS LSP: Using standard from PHPCS_STANDARD env: {}", env_standard);
-                    options.insert("standard".to_string(), zed::serde_json::Value::String(env_standard));
-                    found_standard = true;
+                    standard_to_use = Some(env_standard);
                 }
             }
         }
         
-        // Auto-discover standard if none specified and no config file found
-        if !found_standard && !options.contains_key("configFile") {
-            // Default to PSR12 if no configuration is found
-            eprintln!("PHPCS LSP: No standard specified and no config file found, defaulting to PSR12");
-            options.insert("standard".to_string(), zed::serde_json::Value::String("PSR12".to_string()));
+        // Pass the standard to the LSP server if we have one
+        if let Some(standard) = standard_to_use {
+            eprintln!("PHPCS LSP: Passing standard to LSP server: {}", standard);
+            options.insert("standard".to_string(), zed::serde_json::Value::String(standard));
+        } else {
+            eprintln!("PHPCS LSP: No custom standard specified, LSP server will use default PSR1,PSR2,PSR12");
         }
         
         eprintln!("PHPCS LSP: Initialization options: {:?}", options);
@@ -377,10 +377,9 @@ impl PhpcsLspExtension {
     fn find_phpcs_config(worktree: &zed::Worktree) -> Option<String> {
         let config_files = [
             ".phpcs.xml",
-            ".phpcs.xml.dist", 
             "phpcs.xml",
+            ".phpcs.xml.dist",
             "phpcs.xml.dist",
-            "phpcs.ruleset.xml",
         ];
         
         for config_file in &config_files {
