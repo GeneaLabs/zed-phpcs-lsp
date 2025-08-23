@@ -16,3 +16,6 @@ crate-type = ["cdylib"]
 zed_extension_api = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"

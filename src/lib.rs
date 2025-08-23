@@ -24,7 +24,9 @@ impl PhpcsLspServer {
         _language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
+        eprintln!("🚀 PhpcsLspServer: language_server_command called");
         let binary_path = self.language_server_binary_path(worktree)?;
+        eprintln!("🚀 PhpcsLspServer: Using binary path: {}", binary_path);
         Ok(zed::Command {
             command: binary_path,
             args: vec![],
@@ -134,7 +136,9 @@ impl PhpcsLspServer {
 
 impl zed::Extension for PhpcsLspExtension {
     fn new() -> Self {
-        eprintln!("🚀 PHPCS LSP Extension: new() called - extension is loading!");
+        eprintln!("🚀 PHPCS Extension: new() called - Extension instance created");
+        eprintln!("🚀 PHPCS Extension: Starting initialization process");
+        eprintln!("🚀 PHPCS Extension: Environment - Working directory: {:?}", std::env::current_dir());
         Self {
             phpcs_lsp: None,
         }
@@ -145,12 +149,18 @@ impl zed::Extension for PhpcsLspExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
+        eprintln!("🚀 PHPCS Extension: language_server_command called for: {}", language_server_id.as_ref());
+        eprintln!("🚀 PHPCS Extension: Expected ID: {}", PhpcsLspServer::LANGUAGE_SERVER_ID);
         match language_server_id.as_ref() {
             PhpcsLspServer::LANGUAGE_SERVER_ID => {
+                eprintln!("🚀 PHPCS Extension: ID matches, getting PhpcsLspServer instance");
                 let phpcs_lsp = self.phpcs_lsp.get_or_insert_with(PhpcsLspServer::new);
                 phpcs_lsp.language_server_command(language_server_id, worktree)
             }
-            language_server_id => Err(format!("unknown language server: {language_server_id}").into()),
+            language_server_id => {
+                eprintln!("🚀 PHPCS Extension: Unknown language server ID: {}", language_server_id);
+                Err(format!("unknown language server: {language_server_id}").into())
+            }
         }
     }
 
@@ -159,8 +169,18 @@ impl zed::Extension for PhpcsLspExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        eprintln!("🔧 PHPCS LSP: language_server_initialization_options called for: {}", language_server_id.as_ref());
-        eprintln!("🔧 PHPCS LSP: worktree path: {:?}", worktree.root_path());
+        eprintln!("🔧 PHPCS Extension: language_server_initialization_options called!");
+        eprintln!("🔧 PHPCS Extension: Server ID received: '{}'", language_server_id.as_ref());
+        eprintln!("🔧 PHPCS Extension: Expected ID: '{}'", PhpcsLspServer::LANGUAGE_SERVER_ID);
+        
+        // Check if this is our language server
+        if language_server_id.as_ref() != PhpcsLspServer::LANGUAGE_SERVER_ID {
+            eprintln!("🔧 PHPCS Extension: Not our server ('{}' != '{}'), returning None", language_server_id.as_ref(), PhpcsLspServer::LANGUAGE_SERVER_ID);
+            return Ok(None);
+        }
+        
+        eprintln!("🔧 PHPCS Extension: Processing initialization options for PHPCS server");
+        eprintln!("🔧 PHPCS Extension: worktree path: {:?}", worktree.root_path());
         let mut options = zed::serde_json::Map::new();
         
         // Try to get user-configured settings first
@@ -193,10 +213,18 @@ impl zed::Extension for PhpcsLspExtension {
         // Determine standard/config to use (priority order: config file -> settings -> env -> default)
         let mut standard_to_use: Option<String> = None;
         
+        eprintln!("🔧 PHPCS Extension: ========================================");
+        eprintln!("🔧 PHPCS Extension: Starting standard/config determination process");
+        eprintln!("🔧 PHPCS Extension: Current working directory: {:?}", std::env::current_dir());
+        eprintln!("🔧 PHPCS Extension: Worktree root: {:?}", worktree.root_path());
+        
         // Try to find phpcs configuration file first (highest priority)
+        eprintln!("🔧 PHPCS Extension: Attempting to find phpcs config file...");
         if let Some(config_file) = Self::find_phpcs_config(worktree) {
-            eprintln!("PHPCS LSP: Found phpcs config file: {}", config_file);
+            eprintln!("✅ PHPCS Extension: Found phpcs config file: {}", config_file);
             standard_to_use = Some(config_file);
+        } else {
+            eprintln!("❌ PHPCS Extension: No phpcs config file found, trying other methods");
         }
         
         // Check for user-configured coding standard from settings.json
@@ -247,18 +275,27 @@ impl zed::Extension for PhpcsLspExtension {
         
         // Pass the standard to the LSP server if we have one
         if let Some(standard) = standard_to_use {
-            eprintln!("PHPCS LSP: Passing standard to LSP server: {}", standard);
-            options.insert("standard".to_string(), zed::serde_json::Value::String(standard));
+            eprintln!("✅ PHPCS Extension: Final decision - passing standard to LSP server: {}", standard);
+            eprintln!("✅ PHPCS Extension: Standard type: {}", if standard.ends_with(".xml") { "CONFIG FILE" } else { "STANDARD NAME" });
+            eprintln!("✅ PHPCS Extension: Adding 'standard' key to options map");
+            options.insert("standard".to_string(), zed::serde_json::Value::String(standard.clone()));
+            eprintln!("✅ PHPCS Extension: Options map after insert: {:?}", options);
         } else {
-            eprintln!("PHPCS LSP: No custom standard specified, LSP server will use default PSR1,PSR2,PSR12");
+            eprintln!("❌ PHPCS Extension: Final decision - no custom standard specified, LSP server will use default PSR1,PSR2,PSR12");
         }
         
-        eprintln!("PHPCS LSP: Initialization options: {:?}", options);
+        eprintln!("🚀 PHPCS Extension: ========================================");
+        eprintln!("🚀 PHPCS Extension: Final initialization options being sent to LSP server:");
+        eprintln!("🚀 PHPCS Extension: Options count: {}", options.len());
+        eprintln!("🚀 PHPCS Extension: Options content: {:?}", options);
         
         if options.is_empty() {
+            eprintln!("🚀 PHPCS Extension: Returning None (no options to pass)");
             Ok(None)
         } else {
-            Ok(Some(zed::serde_json::Value::Object(options)))
+            let json_value = zed::serde_json::Value::Object(options);
+            eprintln!("🚀 PHPCS Extension: Returning Some with JSON: {}", zed::serde_json::to_string_pretty(&json_value).unwrap_or("Failed to serialize".to_string()));
+            Ok(Some(json_value))
         }
     }
 }
@@ -375,21 +412,63 @@ impl PhpcsLspExtension {
     }
     
     fn find_phpcs_config(worktree: &zed::Worktree) -> Option<String> {
+        eprintln!("🔍 PHPCS Extension: ========================================");
+        eprintln!("🔍 PHPCS Extension: Starting config file discovery process");
+        eprintln!("🔍 PHPCS Extension: Called from: {:?}", std::env::current_dir());
+        
         let config_files = [
             ".phpcs.xml",
-            "phpcs.xml",
+            "phpcs.xml", 
             ".phpcs.xml.dist",
             "phpcs.xml.dist",
         ];
         
+        eprintln!("🔍 PHPCS Extension: Looking for config files: {:?}", config_files);
+        
+        let root_path = worktree.root_path();
+        eprintln!("🔍 PHPCS Extension: Raw worktree root path: '{}'", root_path);
+        let root_path = std::path::PathBuf::from(root_path);
+        eprintln!("🔍 PHPCS Extension: PathBuf worktree root path: {:?}", root_path);
+        eprintln!("🔍 PHPCS Extension: Path exists: {}", root_path.exists());
+        eprintln!("🔍 PHPCS Extension: Path is dir: {}", root_path.is_dir());
+        
         for config_file in &config_files {
-            if let Some(path) = worktree.which(config_file) {
-                return Some(path);
+            let config_path = root_path.join(config_file);
+            eprintln!("🔍 PHPCS Extension: Checking for config file: {}", config_file);
+            eprintln!("🔍 PHPCS Extension: Full path to check: {:?}", config_path);
+            eprintln!("🔍 PHPCS Extension: Canonical path attempt: {:?}", config_path.canonicalize());
+            
+            if config_path.exists() {
+                eprintln!("✅ PHPCS Extension: Config file EXISTS at: {:?}", config_path);
+                eprintln!("✅ PHPCS Extension: File metadata: {:?}", config_path.metadata());
+                if let Some(path_str) = config_path.to_str() {
+                    eprintln!("✅ PHPCS Extension: Successfully converted to string: {}", path_str);
+                    eprintln!("✅ PHPCS Extension: Returning config file path: {}", path_str);
+                    eprintln!("🔍 PHPCS Extension: ========================================");
+                    return Some(path_str.to_string());
+                } else {
+                    eprintln!("❌ PHPCS Extension: Could not convert path to string: {:?}", config_path);
+                }
+            } else {
+                eprintln!("❌ PHPCS Extension: Config file does NOT exist at: {:?}", config_path);
+                // Try to list directory contents to debug
+                if let Ok(entries) = std::fs::read_dir(&root_path) {
+                    eprintln!("🔍 PHPCS Extension: Directory contents of {:?}:", root_path);
+                    for entry in entries.flatten() {
+                        eprintln!("  - {:?}", entry.file_name());
+                    }
+                }
             }
         }
         
+        eprintln!("❌ PHPCS Extension: No config files found in worktree root");
+        eprintln!("❌ PHPCS Extension: Config file discovery complete - no config found, will use defaults");
+        eprintln!("🔍 PHPCS Extension: ========================================");
         None
     }
 }
 
 zed::register_extension!(PhpcsLspExtension);
+
+#[cfg(test)]
+mod test;

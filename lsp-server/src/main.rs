@@ -33,6 +33,7 @@ impl PhpcsLanguageServer {
     }
 
     async fn run_phpcs(&self, uri: &Url, file_path: &str, content: Option<&str>) -> Result<Vec<Diagnostic>> {
+        eprintln!("PHPCS LSP: *** run_phpcs called for file: {}", file_path);
         // Always look for PHPCS in the same directory as the LSP server
         let phpcs_path = if let Ok(current_exe) = std::env::current_exe() {
             if let Some(exe_dir) = current_exe.parent() {
@@ -78,12 +79,21 @@ impl PhpcsLanguageServer {
            .arg("-q");
 
         // Add the standard/config file
+        eprintln!("🔧 PHPCS LSP: About to read standard from lock");
         let standard = {
             let standard_guard = self.standard.read().unwrap();
+            eprintln!("🔧 PHPCS LSP: Successfully acquired standard lock");
             standard_guard.clone()
         };
-        eprintln!("PHPCS LSP: Using coding standard: {}", standard);
+        eprintln!("🔧 PHPCS LSP: Using coding standard: '{}'", standard);
+        eprintln!("🔧 PHPCS LSP: Adding --standard='{}' argument to command", standard);
         cmd.arg(format!("--standard={}", standard));
+        
+        // Show the complete command being run
+        eprintln!("🚀 PHPCS LSP: Complete PHPCS command: {} {:?}", phpcs_path, cmd.get_args().collect::<Vec<_>>());
+        
+        // Log to main Zed log for visibility
+        self.client.log_message(MessageType::INFO, format!("Running PHPCS with standard: '{}' on file: {}", standard, file_path)).await;
 
         if let Some(text) = content {
             cmd.arg("-");
@@ -372,27 +382,92 @@ impl PhpcsLanguageServer {
 #[tower_lsp::async_trait]
 impl LanguageServer for PhpcsLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        eprintln!("PHPCS LSP: Initialize called");
+        eprintln!("🚀 PHPCS LSP: Initialize called");
+        eprintln!("🚀 PHPCS LSP: Full InitializeParams received:");
+        eprintln!("🚀 PHPCS LSP: - root_uri: {:?}", params.root_uri);
+        eprintln!("🚀 PHPCS LSP: - root_path (deprecated): {:?}", params.root_path);
+        eprintln!("🚀 PHPCS LSP: - client_info: {:?}", params.client_info);
+        eprintln!("🚀 PHPCS LSP: - workspace_folders: {:?}", params.workspace_folders);
+
+        // Determine workspace root for config file lookup
+        let workspace_root = if let Some(root_uri) = &params.root_uri {
+            root_uri.to_file_path().ok()
+        } else {
+            params.root_path.as_ref().map(|p| std::path::PathBuf::from(p))
+        };
+        
+        eprintln!("🔍 PHPCS LSP: Workspace root for config lookup: {:?}", workspace_root);
 
         if let Some(options) = params.initialization_options {
-            eprintln!("PHPCS LSP: Received initialization options: {:?}", options);
+            eprintln!("✅ PHPCS LSP: Received initialization options from extension:");
+            eprintln!("✅ PHPCS LSP: Raw options JSON: {}", serde_json::to_string_pretty(&options).unwrap_or("Failed to serialize".to_string()));
             
             // Parse initialization options
-            if let Ok(init_options) = serde_json::from_value::<InitializationOptions>(options) {
-                if let Some(standard) = init_options.standard {
-                    eprintln!("PHPCS LSP: Using custom standard/config: {}", standard);
-                    if let Ok(mut standard_guard) = self.standard.write() {
-                        *standard_guard = standard;
+            match serde_json::from_value::<InitializationOptions>(options.clone()) {
+                Ok(init_options) => {
+                    eprintln!("✅ PHPCS LSP: Successfully parsed initialization options");
+                    if let Some(standard) = init_options.standard {
+                        eprintln!("✅ PHPCS LSP: Extension passed standard/config: '{}'", standard);
+                        eprintln!("✅ PHPCS LSP: Setting LSP server to use: '{}'", standard);
+                        if let Ok(mut standard_guard) = self.standard.write() {
+                            *standard_guard = standard.clone();
+                            eprintln!("✅ PHPCS LSP: Successfully updated internal standard to: '{}'", standard);
+                        } else {
+                            eprintln!("❌ PHPCS LSP: Failed to acquire write lock for standard");
+                        }
+                    } else {
+                        eprintln!("❌ PHPCS LSP: Extension did not provide any standard, using default PSR1,PSR2,PSR12");
                     }
-                } else {
-                    eprintln!("PHPCS LSP: No standard specified, using default PSR1,PSR2,PSR12");
+                },
+                Err(e) => {
+                    eprintln!("❌ PHPCS LSP: Failed to parse initialization options: {}", e);
+                    eprintln!("❌ PHPCS LSP: Raw options were: {:?}", options);
                 }
-            } else {
-                eprintln!("PHPCS LSP: Failed to parse initialization options");
             }
         } else {
-            eprintln!("PHPCS LSP: No initialization options provided, using default PSR1,PSR2,PSR12");
+            eprintln!("❌ PHPCS LSP: No initialization options provided by extension");
+            
+            // Try to find phpcs.xml in workspace root
+            if let Some(root) = &workspace_root {
+                eprintln!("🔍 PHPCS LSP: Looking for phpcs config file in workspace root: {:?}", root);
+                
+                let config_files = [
+                    ".phpcs.xml",
+                    "phpcs.xml",
+                    ".phpcs.xml.dist", 
+                    "phpcs.xml.dist",
+                ];
+                
+                for config_file in &config_files {
+                    let config_path = root.join(config_file);
+                    eprintln!("🔍 PHPCS LSP: Checking for config file: {:?}", config_path);
+                    
+                    if config_path.exists() {
+                        if let Some(path_str) = config_path.to_str() {
+                            eprintln!("✅ PHPCS LSP: Found phpcs config file: {}", path_str);
+                            eprintln!("✅ PHPCS LSP: Setting LSP server to use config file: {}", path_str);
+                            if let Ok(mut standard_guard) = self.standard.write() {
+                                *standard_guard = path_str.to_string();
+                                eprintln!("✅ PHPCS LSP: Successfully updated internal standard to config file: '{}'", path_str);
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else {
+                eprintln!("❌ PHPCS LSP: No workspace root available for config file lookup");
+            }
         }
+        
+        // Log the final standard being used
+        let current_standard = {
+            let standard_guard = self.standard.read().unwrap();
+            standard_guard.clone()
+        };
+        eprintln!("🎯 PHPCS LSP: Final standard being used by LSP server: '{}'", current_standard);
+        
+        // Also log this at server startup for visibility in main logs
+        self.client.log_message(MessageType::INFO, format!("PHPCS LSP Server initialized with standard: '{}'", current_standard)).await;
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -427,8 +502,19 @@ impl LanguageServer for PhpcsLanguageServer {
                 let phpcs_path = exe_dir.join("phpcs.phar");
                 eprintln!("PHPCS LSP: Looking for PHPCS at: {}", phpcs_path.display());
                 eprintln!("PHPCS LSP: PHPCS exists: {}", phpcs_path.exists());
+                
+                // Log this information to the main Zed log as well
+                let phpcs_status = if phpcs_path.exists() { "found" } else { "not found" };
+                self.client.log_message(MessageType::INFO, format!("PHPCS binary {} at: {}", phpcs_status, phpcs_path.display())).await;
             }
         }
+        
+        // Log the current standard configuration for visibility
+        let current_standard = {
+            let standard_guard = self.standard.read().unwrap();
+            standard_guard.clone()
+        };
+        self.client.log_message(MessageType::INFO, format!("PHPCS LSP Server ready - using standard: '{}'", current_standard)).await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -436,6 +522,7 @@ impl LanguageServer for PhpcsLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        eprintln!("PHPCS LSP: *** did_open called for: {}", params.text_document.uri);
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text;
 
@@ -459,6 +546,7 @@ impl LanguageServer for PhpcsLanguageServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        eprintln!("PHPCS LSP: *** did_change called for: {}", params.text_document.uri);
         let uri = params.text_document.uri.clone();
 
         if let Some(change) = params.content_changes.first() {
@@ -501,6 +589,7 @@ impl LanguageServer for PhpcsLanguageServer {
         &self,
         params: DocumentDiagnosticParams,
     ) -> LspResult<DocumentDiagnosticReportResult> {
+        eprintln!("PHPCS LSP: *** diagnostic called for: {}", params.text_document.uri);
         let uri = params.text_document.uri;
 
         if let Ok(file_path) = uri.to_file_path() {
