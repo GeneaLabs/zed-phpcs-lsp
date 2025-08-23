@@ -82,6 +82,7 @@ impl PhpcsLanguageServer {
             let standard_guard = self.standard.read().unwrap();
             standard_guard.clone()
         };
+        eprintln!("PHPCS LSP: Using coding standard: {}", standard);
         cmd.arg(format!("--standard={}", standard));
 
         if let Some(text) = content {

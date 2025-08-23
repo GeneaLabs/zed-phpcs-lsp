@@ -79,8 +79,9 @@ The extension follows **PHP_CodeSniffer's native discovery behavior** with this 
 <details>
 <summary><strong>Zed Settings Configuration</strong></summary>
 
-Configure standards in your `settings.json`:
+Configure standards in your **Zed settings.json** file (open with `Cmd+,` or `Ctrl+,`):
 
+**Single standard:**
 ```json
 {
   "lsp": {
@@ -93,31 +94,46 @@ Configure standards in your `settings.json`:
 }
 ```
 
-**Multiple standards:**
+**Multiple standards (comma-separated):**
 ```json
 {
   "lsp": {
     "phpcs": {
       "settings": {
-        "standard": ["PSR12", "Squiz.Commenting"]
+        "standard": ["PSR12", "Squiz.Commenting", "Generic.Files.LineLength"]
       }
     }
   }
 }
 ```
 
-**Custom ruleset path:**
+**Path to custom ruleset:**
 ```json
 {
   "lsp": {
     "phpcs": {
       "settings": {
-        "standard": "./custom-phpcs.xml"
+        "standard": "/path/to/custom-phpcs.xml"
       }
     }
   }
 }
 ```
+
+**Relative path to project ruleset:**
+```json
+{
+  "lsp": {
+    "phpcs": {
+      "settings": {
+        "standard": "./ruleset.xml"
+      }
+    }
+  }
+}
+```
+
+> **💡 Tip:** You can also set these in **local project settings** by creating `.zed/settings.json` in your project root.
 
 </details>
 
