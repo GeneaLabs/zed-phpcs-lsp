@@ -516,7 +516,7 @@ impl LanguageServer for PhpcsLanguageServer {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
+                    TextDocumentSyncKind::FULL,
                 )),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                     DiagnosticOptions {
@@ -651,12 +651,13 @@ impl LanguageServer for PhpcsLanguageServer {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri.clone();
 
+        // With FULL sync, we always get the complete document content
         if let Some(change) = params.content_changes.first() {
             let mut docs = self.open_docs.write().unwrap();
             docs.insert(uri.clone(), change.text.clone());
         }
         
-        // Debounce/skip intermediate changes - diagnostics will be provided via diagnostic() method
+        // Diagnostics will be provided via diagnostic() method
         // This reduces unnecessary PHPCS runs during rapid typing
     }
 
