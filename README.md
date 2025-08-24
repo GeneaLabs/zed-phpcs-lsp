@@ -14,6 +14,7 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 - **Real-time diagnostics** - See code style violations as you type
 - **Zero configuration** - Works out of the box using PHPCS native defaults
 - **Live configuration** - Settings changes apply immediately without restart
+- **Auto-recovery** - Automatically handles deleted or invalid config files
 - **Multiple standards** - PSR-12, PSR-2, Squiz, custom rulesets
 - **Project awareness** - Automatically discovers phpcs.xml configuration
 - **Cross-platform** - Includes binaries for Linux, macOS, and Windows
@@ -254,6 +255,29 @@ Contributions are welcome! Please feel free to:
 - Report bugs or request features via [GitHub Issues](https://github.com/GeneaLabs/zed-phpcs-lsp/issues)
 - Submit pull requests for improvements
 - Share feedback in [Discussions](https://github.com/GeneaLabs/zed-phpcs-lsp/discussions)
+
+## Auto-Recovery
+
+The extension automatically handles configuration changes and edge cases:
+
+### **Deleted Config Files**
+If you delete a `phpcs.xml` file after the LSP is running:
+- Next lint detects the missing config file
+- Automatically re-scans for other config files (`.phpcs.xml.dist`, etc.)
+- Falls back to PHPCS defaults if no config found
+- **No restart required** - recovery happens seamlessly
+
+### **Invalid Config Files**
+If a config file becomes corrupted or references missing standards:
+- Error is detected during linting
+- Standard discovery process re-runs automatically
+- Graceful fallback to working configuration
+- Detailed logging shows the recovery process
+
+### **Dynamic Updates**
+- **Settings changes** - Applied immediately via `did_change_configuration`
+- **Workspace changes** - Config re-discovered when switching projects
+- **File system changes** - Config errors trigger automatic re-discovery
 
 ## Troubleshooting
 

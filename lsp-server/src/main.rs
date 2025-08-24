@@ -81,6 +81,39 @@ impl PhpcsLanguageServer {
         
         phpcs_path
     }
+    
+    fn discover_standard(&self, workspace_root: Option<&std::path::Path>) {
+        eprintln!("🔍 PHPCS LSP: Discovering coding standard...");
+        
+        if let Some(root) = workspace_root {
+            let config_files = [
+                ".phpcs.xml",
+                "phpcs.xml",
+                ".phpcs.xml.dist", 
+                "phpcs.xml.dist",
+            ];
+            
+            for config_file in &config_files {
+                let config_path = root.join(config_file);
+                
+                if config_path.exists() {
+                    if let Some(path_str) = config_path.to_str() {
+                        eprintln!("✅ PHPCS LSP: Found config file: {}", path_str);
+                        if let Ok(mut standard_guard) = self.standard.write() {
+                            *standard_guard = Some(path_str.to_string());
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        
+        // No config file found - use PHPCS defaults
+        eprintln!("🎯 PHPCS LSP: No config files found - will use PHPCS defaults");
+        if let Ok(mut standard_guard) = self.standard.write() {
+            *standard_guard = None;
+        }
+    }
 
     async fn run_phpcs(&self, uri: &Url, _file_path: &str, content: Option<&str>) -> Result<Vec<Diagnostic>> {
         let file_name = uri.path_segments()
@@ -144,6 +177,33 @@ impl PhpcsLanguageServer {
 
         let output = child.wait_with_output()?;
         let raw_output = String::from_utf8_lossy(&output.stdout);
+        let raw_stderr = String::from_utf8_lossy(&output.stderr);
+        
+        // Check for errors that indicate missing/invalid config file
+        if !output.status.success() && (
+            raw_stderr.contains("does not exist") || 
+            raw_stderr.contains("cannot be found") ||
+            raw_stderr.contains("No such file") ||
+            raw_stderr.contains("coding standard") && raw_stderr.contains("not installed")
+        ) {
+            eprintln!("⚠️ PHPCS LSP: Config file error detected, re-discovering standard...");
+            eprintln!("   Error was: {}", raw_stderr.trim());
+            
+            // Get workspace root from the file URI
+            let workspace_root = if let Ok(file_path) = uri.to_file_path() {
+                file_path.parent().map(|p| p.to_path_buf())
+            } else {
+                None
+            };
+            
+            // Re-discover the standard using our existing method
+            self.discover_standard(workspace_root.as_deref());
+            
+            // Return empty diagnostics on error rather than retry to avoid recursion
+            // The next diagnostic request will use the updated standard
+            eprintln!("🔄 PHPCS LSP: Standard updated - next diagnostic request will use new configuration");
+            return Ok(vec![]);
+        }
         
         let diagnostics = self.parse_phpcs_output(&raw_output, uri).await?;
         
@@ -449,38 +509,8 @@ impl LanguageServer for PhpcsLanguageServer {
                 }
             }
         } else {
-            
-            // Try to find phpcs.xml in workspace root
-            eprintln!("🔍 PHPCS LSP: Searching for phpcs config files in workspace...");
-            if let Some(root) = &workspace_root {
-                let config_files = [
-                    ".phpcs.xml",
-                    "phpcs.xml",
-                    ".phpcs.xml.dist", 
-                    "phpcs.xml.dist",
-                ];
-                
-                for config_file in &config_files {
-                    let config_path = root.join(config_file);
-                    
-                    if config_path.exists() {
-                        if let Some(path_str) = config_path.to_str() {
-                            eprintln!("✅ PHPCS LSP: Found config file: {}", path_str);
-                            if let Ok(mut standard_guard) = self.standard.write() {
-                                *standard_guard = Some(path_str.to_string());
-                            }
-                            break;
-                        }
-                    }
-                }
-                
-                // Log final result
-                if let Ok(standard_guard) = self.standard.read() {
-                    if standard_guard.is_none() {
-                        eprintln!("🎯 PHPCS LSP: No config files found - will use PHPCS defaults");
-                    }
-                } 
-            }
+            // No initialization options provided, discover from workspace
+            self.discover_standard(workspace_root.as_deref());
         }
 
         // Log final initialization state
@@ -621,22 +651,10 @@ impl LanguageServer for PhpcsLanguageServer {
         
         eprintln!("📂 PHPCS LSP: File opened: {} ({} bytes)", file_name, text.len());
 
+        // Just store the document content - diagnostics will be provided via diagnostic() method
         {
             let mut docs = self.open_docs.write().unwrap();
             docs.insert(uri.clone(), text);
-        }
-
-        if let Ok(file_path) = uri.to_file_path() {
-            if let Some(path_str) = file_path.to_str() {
-                let content = {
-                    let docs = self.open_docs.read().unwrap();
-                    docs.get(&uri).cloned()
-                };
-
-                if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, content.as_deref()).await {
-                    let _ = self.client.publish_diagnostics(uri, diagnostics, None).await;
-                }
-            }
         }
     }
 
@@ -654,19 +672,15 @@ impl LanguageServer for PhpcsLanguageServer {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
-
-        if let Ok(file_path) = uri.to_file_path() {
-            if let Some(path_str) = file_path.to_str() {
-                let content = {
-                    let docs = self.open_docs.read().unwrap();
-                    docs.get(&uri).cloned()
-                };
-
-                if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, content.as_deref()).await {
-                    let _ = self.client.publish_diagnostics(uri, diagnostics, None).await;
-                }
-            }
-        }
+        
+        let file_name = uri.path_segments()
+            .and_then(|segments| segments.last())
+            .unwrap_or("unknown");
+        
+        eprintln!("💾 PHPCS LSP: File saved: {}", file_name);
+        
+        // Note: Diagnostics will be provided via diagnostic() method calls from Zed
+        // We don't need to proactively run PHPCS here to avoid duplicate linting
     }
 
     async fn diagnostic(
