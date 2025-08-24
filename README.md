@@ -262,15 +262,15 @@ The extension automatically handles configuration changes and edge cases:
 
 ### **Deleted Config Files**
 If you delete a `phpcs.xml` file after the LSP is running:
-- Next lint detects the missing config file
+- **Proactive detection** - Checks file exists before each lint operation
 - Automatically re-scans for other config files (`.phpcs.xml.dist`, etc.)
 - Falls back to PHPCS defaults if no config found
 - **No restart required** - recovery happens seamlessly
 
 ### **Invalid Config Files**
 If a config file becomes corrupted or references missing standards:
-- Error is detected during linting
-- Standard discovery process re-runs automatically
+- File existence validated before use, with immediate re-discovery if missing
+- Standard discovery process re-runs automatically for any configuration issues
 - Graceful fallback to working configuration
 - Detailed logging shows the recovery process
 

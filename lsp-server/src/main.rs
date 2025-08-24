@@ -137,12 +137,32 @@ impl PhpcsLanguageServer {
            .arg("--no-colors")
            .arg("-q");
 
-        // Only add standard if explicitly configured
+        // Only add standard if explicitly configured and file still exists
         let standard_info = if let Ok(standard_guard) = self.standard.read() {
             if let Some(ref standard) = *standard_guard {
-                eprintln!("⚙️ PHPCS LSP: Using configured standard: {}", standard);
-                cmd.arg(format!("--standard={}", standard));
-                format!(" with standard '{}'" , standard)
+                // Check if it's a file path and validate it exists
+                if (standard.starts_with('/') || standard.starts_with('./') || standard.ends_with('.xml')) && !std::path::Path::new(standard).exists() {
+                    eprintln!("⚠️ PHPCS LSP: Config file no longer exists: {}", standard);
+                    eprintln!("🔄 PHPCS LSP: Re-discovering standard...");
+                    
+                    // Get workspace root from the file URI  
+                    let workspace_root = if let Ok(file_path) = uri.to_file_path() {
+                        file_path.parent().map(|p| p.to_path_buf())
+                    } else {
+                        None
+                    };
+                    
+                    // Re-discover the standard
+                    self.discover_standard(workspace_root.as_deref());
+                    
+                    // Use default for this run
+                    eprintln!("🎯 PHPCS LSP: Using PHPCS default standard for this run");
+                    " with default standard (config file missing)".to_string()
+                } else {
+                    eprintln!("⚙️ PHPCS LSP: Using configured standard: {}", standard);
+                    cmd.arg(format!("--standard={}", standard));
+                    format!(" with standard '{}'" , standard)
+                }
             } else {
                 eprintln!("🎯 PHPCS LSP: Using PHPCS default standard (no --standard flag)");
                 " with default standard".to_string()
@@ -177,31 +197,6 @@ impl PhpcsLanguageServer {
         let raw_output = String::from_utf8_lossy(&output.stdout);
         let raw_stderr = String::from_utf8_lossy(&output.stderr);
         
-        // Check for errors that indicate missing/invalid config file
-        if !output.status.success() && (
-            raw_stderr.contains("does not exist") || 
-            raw_stderr.contains("cannot be found") ||
-            raw_stderr.contains("No such file") ||
-            raw_stderr.contains("coding standard") && raw_stderr.contains("not installed")
-        ) {
-            eprintln!("⚠️ PHPCS LSP: Config file error detected, re-discovering standard...");
-            eprintln!("   Error was: {}", raw_stderr.trim());
-            
-            // Get workspace root from the file URI
-            let workspace_root = if let Ok(file_path) = uri.to_file_path() {
-                file_path.parent().map(|p| p.to_path_buf())
-            } else {
-                None
-            };
-            
-            // Re-discover the standard using our existing method
-            self.discover_standard(workspace_root.as_deref());
-            
-            // Return empty diagnostics on error rather than retry to avoid recursion
-            // The next diagnostic request will use the updated standard
-            eprintln!("🔄 PHPCS LSP: Standard updated - next diagnostic request will use new configuration");
-            return Ok(vec![]);
-        }
         
         let diagnostics = self.parse_phpcs_output(&raw_output, uri).await?;
         
