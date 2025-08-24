@@ -2,8 +2,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command as ProcessCommand;
 use tokio::io::{stdin, stdout};
 use tower_lsp::jsonrpc::Result as LspResult;
@@ -478,11 +476,9 @@ impl LanguageServer for PhpcsLanguageServer {
         eprintln!("🔧 PHPCS LSP: Client info: {:?}", params.client_info);
         
         // Determine workspace root for config file lookup
-        let workspace_root = if let Some(root_uri) = &params.root_uri {
-            root_uri.to_file_path().ok()
-        } else {
-            params.root_path.as_ref().map(|p| std::path::PathBuf::from(p))
-        };
+        let workspace_root = params.root_uri
+            .as_ref()
+            .and_then(|uri| uri.to_file_path().ok());
         
         if let Some(ref root) = workspace_root {
             eprintln!("📁 PHPCS LSP: Workspace root: {}", root.display());

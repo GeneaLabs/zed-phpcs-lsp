@@ -2,6 +2,10 @@ use zed_extension_api::{self as zed, settings::LspSettings, Result};
 use std::env;
 use std::fs;
 
+// Constants
+const PHPCS_CONFIG_FILES: &[&str] = &[".phpcs.xml", "phpcs.xml", ".phpcs.xml.dist", "phpcs.xml.dist"];
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 struct PhpcsLspExtension {
     phpcs_lsp: Option<PhpcsLspServer>,
 }
@@ -55,8 +59,7 @@ impl PhpcsLspServer {
     
     fn download_binary(&self, binary_name: &str) -> Result<String> {
         // Use the same pattern as Gleam extension
-        let version = env!("CARGO_PKG_VERSION");
-        let version_dir = format!("phpcs-{}", version);
+        let version_dir = format!("phpcs-{}", VERSION);
         let binary_path = format!("{}/{}", version_dir, binary_name);
         
         // Check if binary already exists
@@ -65,7 +68,6 @@ impl PhpcsLspServer {
         }
         
         // Try to download from release assets first
-        let version = env!("CARGO_PKG_VERSION");
         let (os, _arch) = zed::current_platform();
         let archive_ext = match os {
             zed::Os::Windows => "zip",
@@ -75,7 +77,7 @@ impl PhpcsLspServer {
         
         let release_url = format!(
             "https://github.com/GeneaLabs/zed-phpcs-lsp/releases/download/{}/{}",
-            version,
+            VERSION,
             archive_name
         );
         
@@ -88,13 +90,12 @@ impl PhpcsLspServer {
         
         // Download the archive from release to version directory
         zed::download_file(&release_url, &version_dir, file_type)
-            .map_err(|e| format!("Failed to download binary from release: {}. Please ensure the release {} exists with assets.", e, version))?;
+            .map_err(|e| format!("Failed to download binary from release: {}. Please ensure the release {} exists with assets.", e, VERSION))?;
         
         // After extraction, the file should be in the bin directory
         if !fs::metadata(&binary_path).is_ok() {
             return Err(format!("Binary not found after extraction. Expected at: {}", binary_path));
         }
-        
         
         // Make the binary executable on Unix-like systems
         #[cfg(unix)]
@@ -239,8 +240,7 @@ impl PhpcsLspExtension {
     
     fn download_phar_if_needed(phar_name: &str) -> Result<String> {
         // Use the same pattern as Gleam extension for consistency
-        let version = env!("CARGO_PKG_VERSION");
-        let version_dir = format!("phpcs-{}", version);
+        let version_dir = format!("phpcs-{}", VERSION);
         let phar_path = format!("{}/{}", version_dir, phar_name);
         
         // Check if PHAR already exists
@@ -249,25 +249,22 @@ impl PhpcsLspExtension {
         }
         
         // Try to download from release assets first
-        let version = env!("CARGO_PKG_VERSION");
         let archive_name = format!("{}.tar.gz", phar_name);
         
         let release_url = format!(
             "https://github.com/GeneaLabs/zed-phpcs-lsp/releases/download/{}/{}",
-            version,
+            VERSION,
             archive_name
         );
         
-        
         // Download the archive from release to version directory
         zed::download_file(&release_url, &version_dir, zed::DownloadedFileType::GzipTar)
-            .map_err(|e| format!("Failed to download {} from release: {}. Please ensure the release {} exists with assets.", phar_name, e, version))?;
+            .map_err(|e| format!("Failed to download {} from release: {}. Please ensure the release {} exists with assets.", phar_name, e, VERSION))?;
         
         // After extraction, the file should be in the bin directory
         if !fs::metadata(&phar_path).is_ok() {
             return Err(format!("{} not found after extraction. Expected at: {}", phar_name, phar_path));
         }
-        
         
         // Make the PHAR executable on Unix-like systems
         #[cfg(unix)]
@@ -284,54 +281,11 @@ impl PhpcsLspExtension {
         Ok(phar_path)
     }
 
-    fn find_phpcs_binary(worktree: &zed::Worktree) -> Option<String> {
-        // First try project-specific PHPCS
-        if let Some(path) = worktree.which("vendor/bin/phpcs") {
-            return Some(path);
-        }
-        
-        // Try bundled PHPCS PHAR using worktree.which()
-        if let Some(path) = worktree.which("phpcs.phar") {
-            return Some(path);
-        }
-        
-        // Try to download PHPCS PHAR if not found
-        match Self::download_phar_if_needed("phpcs.phar") {
-            Ok(path) => Some(path),
-            Err(_) => None
-        }
-    }
-
-    fn find_phpcbf_binary(worktree: &zed::Worktree) -> Option<String> {
-        // First try project-specific PHPCBF
-        if let Some(path) = worktree.which("vendor/bin/phpcbf") {
-            return Some(path);
-        }
-        
-        // Try bundled PHPCBF PHAR using worktree.which()
-        if let Some(path) = worktree.which("phpcbf.phar") {
-            return Some(path);
-        }
-        
-        // Try to download PHPCBF PHAR if not found
-        match Self::download_phar_if_needed("phpcbf.phar") {
-            Ok(path) => Some(path),
-            Err(_) => None
-        }
-    }
     
     fn find_phpcs_config(worktree: &zed::Worktree) -> Option<String> {
-        let config_files = [
-            ".phpcs.xml",
-            "phpcs.xml", 
-            ".phpcs.xml.dist",
-            "phpcs.xml.dist",
-        ];
+        let root_path = std::path::PathBuf::from(worktree.root_path());
         
-        let root_path = worktree.root_path();
-        let root_path = std::path::PathBuf::from(root_path);
-        
-        for config_file in &config_files {
+        for config_file in PHPCS_CONFIG_FILES {
             let config_path = root_path.join(config_file);
             
             if config_path.exists() {
