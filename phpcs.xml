@@ -3,8 +3,8 @@
     <description>Custom coding standard with 120 character line limit</description>
 
     <!-- Include PSR-1 standard -->
-    <rule ref="PSR1"/>
-    
+    <rule ref="PSR12"/>
+
     <!-- Add line length rule with 120 character limit -->
     <rule ref="Generic.Files.LineLength">
         <properties>
