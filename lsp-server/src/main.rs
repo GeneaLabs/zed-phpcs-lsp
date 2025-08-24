@@ -141,7 +141,7 @@ impl PhpcsLanguageServer {
         let standard_info = if let Ok(standard_guard) = self.standard.read() {
             if let Some(ref standard) = *standard_guard {
                 // Check if it's a file path and validate it exists
-                if (standard.starts_with('/') || standard.starts_with('./') || standard.ends_with('.xml')) && !std::path::Path::new(standard).exists() {
+                if (standard.starts_with('/') || standard.starts_with("./") || standard.ends_with(".xml")) && !std::path::Path::new(standard).exists() {
                     eprintln!("⚠️ PHPCS LSP: Config file no longer exists: {}", standard);
                     eprintln!("🔄 PHPCS LSP: Re-discovering standard...");
                     
@@ -195,7 +195,6 @@ impl PhpcsLanguageServer {
 
         let output = child.wait_with_output()?;
         let raw_output = String::from_utf8_lossy(&output.stdout);
-        let raw_stderr = String::from_utf8_lossy(&output.stderr);
         
         
         let diagnostics = self.parse_phpcs_output(&raw_output, uri).await?;
