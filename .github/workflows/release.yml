@@ -219,9 +219,9 @@ jobs:
 
       - name: Download PHPCS and PHPCBF PHARs
         run: |
-          # Download latest stable PHPCS
-          curl -L https://github.com/squizlabs/PHP_CodeSniffer/releases/latest/download/phpcs.phar -o phpcs.phar
-          curl -L https://github.com/squizlabs/PHP_CodeSniffer/releases/latest/download/phpcbf.phar -o phpcbf.phar
+          # Download latest stable PHPCS from PHPCSStandards (maintained fork)
+          curl -L https://github.com/PHPCSStandards/PHP_CodeSniffer/releases/latest/download/phpcs.phar -o phpcs.phar
+          curl -L https://github.com/PHPCSStandards/PHP_CodeSniffer/releases/latest/download/phpcbf.phar -o phpcbf.phar
 
           # Make them executable
           chmod +x phpcs.phar phpcbf.phar

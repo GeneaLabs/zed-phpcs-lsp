@@ -25,6 +25,7 @@ struct PhpcsLanguageServer {
     open_docs: std::sync::Arc<std::sync::RwLock<HashMap<Url, String>>>,
     standard: std::sync::Arc<std::sync::RwLock<Option<String>>>,  // None means use PHPCS defaults
     phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    workspace_root: std::sync::Arc<std::sync::RwLock<Option<std::path::PathBuf>>>,
 }
 
 impl PhpcsLanguageServer {
@@ -34,6 +35,7 @@ impl PhpcsLanguageServer {
             open_docs: std::sync::Arc::new(std::sync::RwLock::new(HashMap::new())),
             standard: std::sync::Arc::new(std::sync::RwLock::new(None)),  // Let PHPCS use its defaults
             phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            workspace_root: std::sync::Arc::new(std::sync::RwLock::new(None)),
         }
     }
     
@@ -49,25 +51,28 @@ impl PhpcsLanguageServer {
         eprintln!("🔍 PHPCS LSP: Detecting PHPCS path...");
         
         // Not cached, find and cache it
-        let phpcs_path = if let Ok(current_exe) = std::env::current_exe() {
-            if let Some(exe_dir) = current_exe.parent() {
-                let bundled_phpcs = exe_dir.join("phpcs.phar");
-                eprintln!("🔍 PHPCS LSP: Checking for bundled PHPCS at: {}", bundled_phpcs.display());
-                
-                if bundled_phpcs.exists() {
-                    eprintln!("✅ PHPCS LSP: Found bundled PHPCS PHAR");
-                    bundled_phpcs.to_string_lossy().to_string()
+        let phpcs_path = {
+            // First priority: Check for project-local vendor/bin/phpcs
+            if let Ok(workspace_guard) = self.workspace_root.read() {
+                if let Some(ref workspace_root) = *workspace_guard {
+                    let vendor_phpcs = workspace_root.join("vendor/bin/phpcs");
+                    eprintln!("🔍 PHPCS LSP: Checking for project PHPCS at: {}", vendor_phpcs.display());
+                    
+                    if vendor_phpcs.exists() {
+                        eprintln!("✅ PHPCS LSP: Found project-local PHPCS");
+                        vendor_phpcs.to_string_lossy().to_string()
+                    } else {
+                        eprintln!("❌ PHPCS LSP: No project-local PHPCS found");
+                        self.get_bundled_or_system_phpcs()
+                    }
                 } else {
-                    eprintln!("❌ PHPCS LSP: No bundled PHPCS found, using system phpcs");
-                    "phpcs".to_string()
+                    eprintln!("❌ PHPCS LSP: No workspace root available");
+                    self.get_bundled_or_system_phpcs()
                 }
             } else {
-                eprintln!("❌ PHPCS LSP: Could not get LSP directory");
-                "phpcs".to_string()
+                eprintln!("❌ PHPCS LSP: Could not access workspace root");
+                self.get_bundled_or_system_phpcs()
             }
-        } else {
-            eprintln!("❌ PHPCS LSP: Could not get current executable path");
-            "phpcs".to_string()
         };
         
         eprintln!("🎯 PHPCS LSP: Final PHPCS path: {}", phpcs_path);
@@ -78,6 +83,31 @@ impl PhpcsLanguageServer {
         }
         
         phpcs_path
+    }
+    
+    fn get_bundled_or_system_phpcs(&self) -> String {
+        // Second priority: Check for bundled PHPCS
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(exe_dir) = current_exe.parent() {
+                let bundled_phpcs = exe_dir.join("phpcs.phar");
+                eprintln!("🔍 PHPCS LSP: Checking for bundled PHPCS at: {}", bundled_phpcs.display());
+                
+                if bundled_phpcs.exists() {
+                    eprintln!("✅ PHPCS LSP: Found bundled PHPCS PHAR");
+                    return bundled_phpcs.to_string_lossy().to_string();
+                } else {
+                    eprintln!("❌ PHPCS LSP: No bundled PHPCS found");
+                }
+            } else {
+                eprintln!("❌ PHPCS LSP: Could not get LSP directory");
+            }
+        } else {
+            eprintln!("❌ PHPCS LSP: Could not get current executable path");
+        }
+        
+        // Third priority: Fall back to system phpcs
+        eprintln!("🔄 PHPCS LSP: Using system phpcs");
+        "phpcs".to_string()
     }
     
     fn discover_standard(&self, workspace_root: Option<&std::path::Path>) {
@@ -478,6 +508,11 @@ impl LanguageServer for PhpcsLanguageServer {
             eprintln!("📁 PHPCS LSP: Workspace root: {}", root.display());
         } else {
             eprintln!("❌ PHPCS LSP: No workspace root detected");
+        }
+        
+        // Store workspace root for PHPCS path detection
+        if let Ok(mut workspace_guard) = self.workspace_root.write() {
+            *workspace_guard = workspace_root.clone();
         }
 
         if let Some(options) = params.initialization_options {

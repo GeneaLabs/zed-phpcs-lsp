@@ -5,7 +5,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
 [![Zed](https://img.shields.io/badge/Zed-Editor-blue?logo=zed&logoColor=white)](https://zed.dev)
-[![PHPCS](https://img.shields.io/badge/PHPCS-Compatible-green)](https://github.com/squizlabs/PHP_CodeSniffer)
+[![PHPCS](https://img.shields.io/badge/PHPCS-3.13.2%2B-green)](https://github.com/PHPCSStandards/PHP_CodeSniffer)
 
 This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time code style checking. It highlights violations as you code and supports various PHP coding standards including PSR-12, custom rulesets, and project-specific configurations.
 
@@ -15,8 +15,9 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 - **Zero configuration** - Works out of the box using PHPCS native defaults
 - **Live configuration** - Settings changes apply immediately without restart
 - **Auto-recovery** - Automatically handles deleted or invalid config files
-- **Multiple standards** - PSR-12, PSR-2, Squiz, custom rulesets
+- **Multiple standards** - PSR-12, PSR-2, Squiz, Slevomat, custom rulesets  
 - **Project awareness** - Automatically discovers phpcs.xml configuration
+- **Smart PHPCS detection** - Prefers project-local installations with dependencies
 - **Cross-platform** - Includes binaries for Linux, macOS, and Windows
 - **Flexible configuration** - Via Zed settings, environment variables, or project files
 
@@ -157,11 +158,13 @@ export PHPCBF_PATH="/custom/path/to/phpcbf"
 <details>
 <summary><strong>Automatic Discovery</strong> (recommended)</summary>
 
-The extension finds PHPCS in this order:
+The extension finds PHPCS in this priority order:
 
-1. **Project composer** - `vendor/bin/phpcs`
-2. **Bundled PHAR** - `bin/phpcs.phar` (included with extension)
+1. **Project composer** - `vendor/bin/phpcs` (includes project dependencies like Slevomat)
+2. **Bundled PHAR** - Modern PHPCS v3.13.2+ (included with extension) 
 3. **System PATH** - Global phpcs installation
+
+> **💡 Enhanced Compatibility:** The extension now prioritizes your project's local PHPCS installation, ensuring full compatibility with Composer-installed coding standards like Slevomat, custom rules, and the exact PHPCS version your project requires.
 
 </details>
 
@@ -338,7 +341,7 @@ echo '<?xml version="1.0"?>
 - [Zed Editor Documentation](https://zed.dev/docs)
 
 ### Built With
-- [PHP_CodeSniffer](https://github.com/squizlabs/PHP_CodeSniffer) - The excellent tool that powers code analysis
+- [PHP_CodeSniffer](https://github.com/PHPCSStandards/PHP_CodeSniffer) - The excellent tool that powers code analysis
 - [Zed Editor](https://zed.dev) - The fast, collaborative editor
 - [Tower LSP](https://github.com/ebkalderon/tower-lsp) - Rust LSP framework
 
