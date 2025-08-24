@@ -12,7 +12,8 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 ## Features
 
 - **Real-time diagnostics** - See code style violations as you type
-- **Zero configuration** - Works out of the box with PSR1,PSR2,PSR12
+- **Zero configuration** - Works out of the box using PHPCS native defaults
+- **Live configuration** - Settings changes apply immediately without restart
 - **Multiple standards** - PSR-12, PSR-2, Squiz, custom rulesets
 - **Project awareness** - Automatically discovers phpcs.xml configuration
 - **Cross-platform** - Includes binaries for Linux, macOS, and Windows
@@ -56,7 +57,7 @@ if ($x === 1) {
 
 ## Configuration
 
-> **Note:** The extension works without any configuration using PSR1,PSR2,PSR12 standards and bundled PHPCS binaries.
+> **Note:** The extension works without any configuration, using PHPCS's natural defaults and bundled binaries.
 
 ### Coding Standards
 
@@ -72,7 +73,9 @@ The extension follows **PHP_CodeSniffer's native discovery behavior** with this 
    - `phpcs.xml.dist` (lowest config file priority)
 2. **Zed settings** - Custom configuration in settings.json  
 3. **Environment variables** - `PHPCS_STANDARD`
-4. **Default fallback** - PSR1,PSR2,PSR12 standards
+4. **PHPCS native defaults** - User config (`~/.phpcs.xml`), global config, or PEAR standard
+
+> **💡 Global Defaults:** Set system-wide standards with `phpcs --config-set default_standard PSR12` or create `~/.phpcs.xml` for user-specific defaults that work across all projects.
 
 </details>
 
@@ -185,13 +188,13 @@ Specify custom PHPCS/PHPCBF paths in settings.json:
 
 | Standard | Description |
 |----------|-------------|
-| **PSR1,PSR2,PSR12** | Combined standards (default) |
-| **PSR-12** | Extended coding style |
-| **PSR-2** | Coding style guide |
+| **PSR-12** | Modern PHP coding style (recommended) |
+| **PSR-2** | Legacy coding style guide |
 | **PSR-1** | Basic coding standard |
 | **Squiz** | Comprehensive rules |
-| **PEAR** | PEAR coding standard |
+| **PEAR** | PEAR coding standard (PHPCS default) |
 | **Zend** | Zend framework standard |
+| **Multiple** | `"PSR12,Generic.Files.LineLength"` |
 | **Custom** | Your phpcs.xml ruleset |
 
 ## Project Configuration
@@ -259,7 +262,7 @@ Contributions are welcome! Please feel free to:
 
 1. Check Zed's debug console for error messages
 2. Verify PHPCS is accessible (custom paths must exist)
-3. Try restarting Zed after configuration changes
+3. **No restart needed** - configuration changes apply immediately
 
 </details>
 
@@ -278,6 +281,28 @@ Contributions are welcome! Please feel free to:
 1. Validate your `phpcs.xml` syntax
 2. Ensure paths are relative to your project root
 3. Test your configuration manually with `phpcs --config-show`
+
+</details>
+
+<details>
+<summary><strong>Want to set global defaults?</strong></summary>
+
+**Set PHPCS global configuration (affects all projects without local config):**
+```bash
+# Set global default standard
+phpcs --config-set default_standard PSR12
+
+# View current global config
+phpcs --config-show
+
+# Create user-specific config file
+echo '<?xml version="1.0"?>
+<ruleset name="My Default">
+    <rule ref="PSR12"/>
+</ruleset>' > ~/.phpcs.xml
+```
+
+> **💡 Pro Tip:** The extension respects all PHPCS configuration methods, so you can mix global defaults with project-specific overrides.
 
 </details>
 
