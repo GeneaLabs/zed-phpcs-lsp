@@ -10,7 +10,7 @@ $array = array(); // Old array syntax (informational)
 use DateTime;
 use     Exception; // Multiple spaces after use keyword
 use DateTimeZone ,  DateTimeInterface; // Comma-separated imports not allowed
-
+asdfsdfs
 // Missing blank line after use statements
 class   MyClass   { // Multiple spaces around class name
 
