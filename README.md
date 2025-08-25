@@ -195,7 +195,6 @@ Specify custom PHPCS/PHPCBF paths in settings.json:
 | **PSR-12** | Modern PHP coding style (recommended) |
 | **PSR-2** | Legacy coding style guide |
 | **PSR-1** | Basic coding standard |
-| **Squiz** | Comprehensive rules |
 | **PEAR** | PEAR coding standard (PHPCS default) |
 | **Zend** | Zend framework standard |
 | **Multiple** | `"PSR12,Generic.Files.LineLength"` |
