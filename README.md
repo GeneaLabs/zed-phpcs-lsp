@@ -38,7 +38,7 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 {
   "languages": {
     "PHP": {
-      "language_servers": ["intelephense", "phpcs"]
+      "language_servers": ["intelephense", "phpcs", "!phpactor"]
     }
   }
 }
