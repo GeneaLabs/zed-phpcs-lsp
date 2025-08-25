@@ -229,35 +229,6 @@ Create a `phpcs.xml` in your project root for team consistency. The extension wi
 </ruleset>
 ```
 
-## Development
-
-### Building from Source
-You only need to build the LSP during development.
-```bash
-cd lsp-server
-cargo build --release
-cp target/release/phpcs-lsp-server ../bin/phpcs-lsp-server
-chmod +x ../bin/phpcs-lsp-server
-```
-
-### Project Structure
-
-```
-zed-phpcs-lsp/
-├── src/lib.rs              # Zed extension (Rust → WASM)
-├── lsp-server/src/main.rs  # LSP server implementation
-├── bin/                    # Cross-platform binaries (auto-updated via CI)
-└── extension.toml          # Extension metadata
-```
-
-### Contributing
-
-Contributions are welcome! Please feel free to:
-
-- Report bugs or request features via [GitHub Issues](https://github.com/GeneaLabs/zed-phpcs-lsp/issues)
-- Submit pull requests for improvements
-- Share feedback in [Discussions](https://github.com/GeneaLabs/zed-phpcs-lsp/discussions)
-
 ## Auto-Recovery
 
 The extension automatically handles configuration changes and edge cases:
