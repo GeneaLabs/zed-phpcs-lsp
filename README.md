@@ -346,7 +346,46 @@ echo '<?xml version="1.0"?>
 - [Tower LSP](https://github.com/ebkalderon/tower-lsp) - Rust LSP framework
 
 ## License
+
+### Main License
+
 This project is licensed under the [MIT License](LICENSE).
+
+```
+MIT License
+
+Copyright (c) 2025 Mike Bronner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Third-Party Licenses
+
+This extension bundles and redistributes third-party software. For a complete list of third-party licenses and attributions, please see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+**Key third-party components:**
+
+- **PHP_CodeSniffer** - BSD-3-Clause License  
+  The core tool that powers code analysis. Bundled as PHAR binaries.
+  
+- **Rust Dependencies** - Various permissive licenses (Apache-2.0, MIT, etc.)  
+  All dependencies are compatible with the MIT license. See the full list in the third-party licenses file.
 
 -----
 **Made with ❤️ and lots of ☕ for the PHP community.**

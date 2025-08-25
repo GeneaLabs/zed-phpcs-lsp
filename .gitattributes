@@ -1,3 +1,5 @@
+.claude/ export-ignore
 .github/ export-ignore
 lsp-server/ export-ignore
-test.php export-ignore
+tests/ export-ignore
+CLAUDE.md export-ignore

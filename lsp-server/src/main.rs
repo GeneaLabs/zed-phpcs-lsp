@@ -202,9 +202,16 @@ impl PhpcsLanguageServer {
         };
         
         // Always use stdin to avoid file system reads
+        // Add --stdin-path to provide the actual filename to PHPCS
+        let stdin_path_info = if let Ok(file_path) = uri.to_file_path() {
+            cmd.arg(format!("--stdin-path={}", file_path.display()));
+            format!(" (stdin-path: {})", file_path.display())
+        } else {
+            " (stdin-path: not available)".to_string()
+        };
         cmd.arg("-");
         
-        eprintln!("🚀 PHPCS LSP: Running PHPCS on {}{}", file_name, standard_info);
+        eprintln!("🚀 PHPCS LSP: Running PHPCS on {}{}{}", file_name, standard_info, stdin_path_info);
         cmd.stdin(std::process::Stdio::piped())
            .stdout(std::process::Stdio::piped())
            .stderr(std::process::Stdio::piped());
