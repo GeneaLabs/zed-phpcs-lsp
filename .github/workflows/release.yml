@@ -266,3 +266,17 @@ jobs:
             phpcs.phar.tar.gz
             phpcbf.phar.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish Zed Extension
+    runs-on: ubuntu-latest
+    needs:
+      - download-phars
+      - build-lsp-server
+    steps:
+      - uses: huacnlee/zed-extension-action@v1
+        with:
+          extension-name: phpcs
+          push-to: GeneaLabs/extensions
+        env:
+          COMMITTER_TOKEN: ${{ secrets.ZED_PUBLISHING_TOKEN }}
