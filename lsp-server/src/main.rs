@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command as ProcessCommand;
@@ -721,6 +722,9 @@ impl LanguageServer for PhpcsLanguageServer {
         params: DocumentDiagnosticParams,
     ) -> LspResult<DocumentDiagnosticReportResult> {
         let uri = params.text_document.uri;
+        let file_name = uri.path_segments()
+            .and_then(|segments| segments.last())
+            .unwrap_or("unknown");
 
         if let Ok(file_path) = uri.to_file_path() {
             if let Some(path_str) = file_path.to_str() {
@@ -748,11 +752,40 @@ impl LanguageServer for PhpcsLanguageServer {
                 };
 
                 if let Some(content) = content {
+                    // Generate version ID based on content hash
+                    let mut hasher = Sha256::new();
+                    hasher.update(content.as_bytes());
+                    let content_hash = format!("{:x}", hasher.finalize());
+                    let version_id = format!("{}-{}", &content_hash[..16], content.len());
+                    
+                    eprintln!("📋 PHPCS LSP: Generating diagnostics for {} with version: {}", file_name, version_id);
+                    
+                    // Check if we can return unchanged result
+                    if let Some(previous_result_id) = params.previous_result_id {
+                        if previous_result_id == version_id {
+                            eprintln!("✅ PHPCS LSP: Content unchanged for {}, returning unchanged result", file_name);
+                            return Ok(DocumentDiagnosticReportResult::Report(
+                                DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
+                                    unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
+                                        result_id: version_id,
+                                    },
+                                    related_documents: None,
+                                }),
+                            ));
+                        } else {
+                            eprintln!("🔄 PHPCS LSP: Version changed for {} from {} to {}", 
+                                file_name, previous_result_id, version_id);
+                        }
+                    }
+                    
                     if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, Some(&content)).await {
+                        eprintln!("📊 PHPCS LSP: Returning {} diagnostics for {} with version {}", 
+                            diagnostics.len(), file_name, version_id);
+                        
                         return Ok(DocumentDiagnosticReportResult::Report(
                             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                                    result_id: None,
+                                    result_id: Some(version_id),
                                     items: diagnostics,
                                 },
                                 related_documents: None,
@@ -763,6 +796,8 @@ impl LanguageServer for PhpcsLanguageServer {
             }
         }
 
+        // Fallback: return empty diagnostics with no version
+        eprintln!("⚠️ PHPCS LSP: Unable to generate diagnostics for {}", file_name);
         Ok(DocumentDiagnosticReportResult::Report(
             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {

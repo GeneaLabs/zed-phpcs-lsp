@@ -80,6 +80,10 @@ This extension is built using Rust and includes the following dependencies, all 
 ### Apache-2.0 OR MIT
 
 - **anyhow** v1.0.99 - https://github.com/dtolnay/anyhow
+- **block-buffer** v0.10.4 - https://github.com/RustCrypto/utils
+- **cpufeatures** v0.2.17 - https://github.com/RustCrypto/utils
+- **crypto-common** v0.1.6 - https://github.com/RustCrypto/traits
+- **digest** v0.10.7 - https://github.com/RustCrypto/traits
 - **auditable-serde** v0.8.0 - https://github.com/rust-secure-code/cargo-auditable
 - **bitflags** v2.9.3 - https://github.com/bitflags/bitflags
 - **cfg-if** v1.0.3 - https://github.com/rust-lang/cfg-if
@@ -121,15 +125,18 @@ This extension is built using Rust and includes the following dependencies, all 
 - **serde** v1.0.219 - https://github.com/serde-rs/serde
 - **serde_derive** v1.0.219 - https://github.com/serde-rs/serde
 - **serde_json** v1.0.143 - https://github.com/serde-rs/json
+- **sha2** v0.10.9 - https://github.com/RustCrypto/hashes
 - **smallvec** v1.15.1 - https://github.com/servo/rust-smallvec
 - **spdx** v0.10.9 - https://github.com/EmbarkStudios/spdx
 - **stable_deref_trait** v1.2.0 - https://github.com/storyyeller/stable_deref_trait
 - **syn** v2.0.106 - https://github.com/dtolnay/syn
 - **tempfile** v3.21.0 - https://github.com/Stebalien/tempfile
+- **typenum** v1.18.0 - https://github.com/paholg/typenum
 - **topological-sort** v0.2.2 - https://github.com/gifnksm/topological-sort-rs
 - **unicode-xid** v0.2.6 - https://github.com/unicode-rs/unicode-xid
 - **url** v2.5.7 - https://github.com/servo/rust-url
 - **utf8_iter** v1.0.4 - https://github.com/hsivonen/utf8_iter
+- **version_check** v0.9.5 - https://github.com/SergioBenitez/version_check
 - **windows-link** v0.1.3 - https://github.com/microsoft/windows-rs
 - **windows-sys** v0.60.2 - https://github.com/microsoft/windows-rs
 - **windows-targets** v0.53.3 - https://github.com/microsoft/windows-rs
@@ -148,6 +155,7 @@ This extension is built using Rust and includes the following dependencies, all 
 
 ### MIT
 
+- **generic-array** v0.14.7 - https://github.com/fizyk20/generic-array
 - **slab** v0.4.11 - https://github.com/tokio-rs/slab
 - **synstructure** v0.13.2 - https://github.com/mystor/synstructure
 
