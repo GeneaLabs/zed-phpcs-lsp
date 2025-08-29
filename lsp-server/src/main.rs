@@ -1,9 +1,12 @@
 use anyhow::Result;
+use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command as ProcessCommand;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 use tokio::io::{stdin, stdout};
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
@@ -21,9 +24,29 @@ struct PhpcsSettings {
 }
 
 #[derive(Debug, Clone)]
+struct CompressedDocument {
+    compressed_data: Vec<u8>,
+    original_size: usize,
+    checksum: String,
+    compression_ratio: f32,
+}
+
+#[derive(Debug, Clone)]
+struct CachedResults {
+    diagnostics: Vec<Diagnostic>,
+    result_id: String,
+    generated_at: Instant,
+}
+
+#[derive(Debug, Clone)]
 struct PhpcsLanguageServer {
     client: Client,
-    open_docs: std::sync::Arc<std::sync::RwLock<HashMap<Url, String>>>,
+    // Compressed document storage to reduce memory usage
+    open_docs: std::sync::Arc<std::sync::RwLock<HashMap<Url, CompressedDocument>>>,
+    // Cache PHPCS results to avoid redundant linting
+    results_cache: std::sync::Arc<std::sync::RwLock<HashMap<Url, CachedResults>>>,
+    // Memory tracking
+    total_memory_usage: std::sync::Arc<AtomicUsize>,
     standard: std::sync::Arc<std::sync::RwLock<Option<String>>>,  // None means use PHPCS defaults
     phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     workspace_root: std::sync::Arc<std::sync::RwLock<Option<std::path::PathBuf>>>,
@@ -33,10 +56,92 @@ impl PhpcsLanguageServer {
     fn new(client: Client) -> Self {
         Self {
             client,
-            open_docs: std::sync::Arc::new(std::sync::RwLock::new(HashMap::new())),
+            open_docs: std::sync::Arc::new(std::sync::RwLock::new(HashMap::with_capacity(100))),
+            results_cache: std::sync::Arc::new(std::sync::RwLock::new(HashMap::with_capacity(100))),
+            total_memory_usage: std::sync::Arc::new(AtomicUsize::new(0)),
             standard: std::sync::Arc::new(std::sync::RwLock::new(None)),  // Let PHPCS use its defaults
             phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
             workspace_root: std::sync::Arc::new(std::sync::RwLock::new(None)),
+        }
+    }
+    
+    fn compress_document(&self, content: &str) -> CompressedDocument {
+        let start = Instant::now();
+        let original_size = content.len();
+        
+        // Use LZ4 for fast compression
+        let compressed_data = compress_prepend_size(content.as_bytes());
+        let compressed_size = compressed_data.len();
+        let compression_ratio = compressed_size as f32 / original_size as f32;
+        
+        // Compute checksum for cache invalidation
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        let checksum = format!("{:x}", hasher.finalize());
+        
+        let elapsed = start.elapsed();
+        eprintln!("📦 PHPCS LSP: Compressed in {:.2}ms: {}KB → {}KB ({:.1}% ratio)", 
+            elapsed.as_secs_f64() * 1000.0,
+            original_size / 1024,
+            compressed_size / 1024,
+            compression_ratio * 100.0
+        );
+        
+        // Update memory tracking
+        self.total_memory_usage.fetch_add(compressed_size, Ordering::Relaxed);
+        
+        CompressedDocument {
+            compressed_data,
+            original_size,
+            checksum,
+            compression_ratio,
+        }
+    }
+    
+    fn decompress_document(&self, doc: &CompressedDocument) -> Result<String> {
+        let start = Instant::now();
+        let decompressed = decompress_size_prepended(&doc.compressed_data)
+            .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
+        
+        let content = String::from_utf8(decompressed)
+            .map_err(|e| anyhow::anyhow!("UTF-8 conversion failed: {}", e))?;
+        
+        let elapsed = start.elapsed();
+        if elapsed.as_millis() > 5 {
+            eprintln!("⚠️ PHPCS LSP: Slow decompression: {:.2}ms for {}KB", 
+                elapsed.as_secs_f64() * 1000.0,
+                doc.original_size / 1024
+            );
+        }
+        
+        Ok(content)
+    }
+    
+    fn get_memory_usage_mb(&self) -> f32 {
+        self.total_memory_usage.load(Ordering::Relaxed) as f32 / 1_048_576.0
+    }
+    
+    fn log_memory_stats(&self) {
+        if let Ok(docs) = self.open_docs.read() {
+            let doc_count = docs.len();
+            let total_original: usize = docs.values().map(|d| d.original_size).sum();
+            let total_compressed: usize = docs.values().map(|d| d.compressed_data.len()).sum();
+            let avg_ratio = if doc_count > 0 {
+                docs.values().map(|d| d.compression_ratio).sum::<f32>() / doc_count as f32
+            } else {
+                0.0
+            };
+            
+            eprintln!("📊 PHPCS LSP Memory Stats:");
+            eprintln!("  📁 Documents: {}", doc_count);
+            eprintln!("  💾 Compressed: {:.1}MB (from {:.1}MB original)", 
+                total_compressed as f32 / 1_048_576.0,
+                total_original as f32 / 1_048_576.0
+            );
+            eprintln!("  📉 Average compression: {:.1}%", avg_ratio * 100.0);
+            eprintln!("  🗄️ Results cached: {}", 
+                self.results_cache.read().map(|c| c.len()).unwrap_or(0)
+            );
         }
     }
     
@@ -320,8 +425,10 @@ impl PhpcsLanguageServer {
 
         // Get the line content from the stored document
         let range = if let Ok(docs) = self.open_docs.read() {
-            if let Some(content) = docs.get(uri) {
-                if let Some(line_content) = content.lines().nth(line as usize) {
+            if let Some(compressed_doc) = docs.get(uri) {
+                // Decompress to get line content
+                if let Ok(content) = self.decompress_document(compressed_doc) {
+                    if let Some(line_content) = content.lines().nth(line as usize) {
                     if is_line_level {
                         // Underline from first non-whitespace character to end of line
                         let first_non_whitespace = line_content.chars()
@@ -338,8 +445,15 @@ impl PhpcsLanguageServer {
                         // Normal token-based underlining
                         self.find_token_range(line_content, line, column)
                     }
+                    } else {
+                        // Fallback if line not found
+                        Range {
+                            start: Position { line, character: column },
+                            end: Position { line, character: column + 1 },
+                        }
+                    }
                 } else {
-                    // Fallback if line not found
+                    // Fallback if decompression fails
                     Range {
                         start: Position { line, character: column },
                         end: Position { line, character: column + 1 },
@@ -590,18 +704,42 @@ impl LanguageServer for PhpcsLanguageServer {
     }
 
     async fn shutdown(&self) -> LspResult<()> {
-        // Clear cached data on shutdown
+        eprintln!("🔄 PHPCS LSP: Shutting down, clearing caches...");
+        
+        // Clear all cached data on shutdown
         if let Ok(mut docs) = self.open_docs.write() {
             docs.clear();
         }
+        if let Ok(mut cache) = self.results_cache.write() {
+            cache.clear();
+        }
+        
+        // Reset memory counter
+        self.total_memory_usage.store(0, Ordering::Relaxed);
+        
+        eprintln!("✅ PHPCS LSP: Shutdown complete");
         Ok(())
     }
     
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         // Clear document from memory to prevent memory leaks
         let uri = params.text_document.uri;
+        
+        // Remove compressed document and update memory tracking
         if let Ok(mut docs) = self.open_docs.write() {
-            docs.remove(&uri);
+            if let Some(doc) = docs.remove(&uri) {
+                let freed_memory = doc.compressed_data.len();
+                self.total_memory_usage.fetch_sub(freed_memory, Ordering::Relaxed);
+                eprintln!("🗑️ PHPCS LSP: Closed file, freed {}KB, total memory: {:.1}MB", 
+                    freed_memory / 1024,
+                    self.get_memory_usage_mb()
+                );
+            }
+        }
+        
+        // Clear cached results
+        if let Ok(mut cache) = self.results_cache.write() {
+            cache.remove(&uri);
         }
         
         // Clear diagnostics for closed file
@@ -613,6 +751,13 @@ impl LanguageServer for PhpcsLanguageServer {
         if let Ok(mut guard) = self.phpcs_path.write() {
             *guard = None;
         }
+        
+        // Clear results cache as paths may have changed
+        if let Ok(mut cache) = self.results_cache.write() {
+            cache.clear();
+        }
+        
+        eprintln!("🔄 PHPCS LSP: Workspace changed, cleared caches");
         
         // Re-detect PHPCS configuration for new workspace
         // This will be done lazily on next PHPCS run
@@ -652,26 +797,14 @@ impl LanguageServer for PhpcsLanguageServer {
             }
         }
         
-        // Re-run diagnostics for all open documents with new settings
-        if let Ok(docs) = self.open_docs.read() {
-            for (uri, content) in docs.iter() {
-                if let Ok(file_path) = uri.to_file_path() {
-                    if let Some(path_str) = file_path.to_str() {
-                        let content_clone = content.clone();
-                        let uri_clone = uri.clone();
-                        let self_clone = self.clone();
-                        let path_str_owned = path_str.to_string();
-                        
-                        // Spawn async task to avoid blocking
-                        tokio::spawn(async move {
-                            if let Ok(diagnostics) = self_clone.run_phpcs(&uri_clone, &path_str_owned, Some(&content_clone)).await {
-                                let _ = self_clone.client.publish_diagnostics(uri_clone, diagnostics, None).await;
-                            }
-                        });
-                    }
-                }
-            }
+        // Clear results cache to force re-linting with new config
+        if let Ok(mut cache) = self.results_cache.write() {
+            cache.clear();
+            eprintln!("🗑️ PHPCS LSP: Cleared results cache after config change");
         }
+        
+        // Note: Documents will be re-linted on next diagnostic() call
+        // No need to proactively re-run PHPCS on all files
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -684,10 +817,31 @@ impl LanguageServer for PhpcsLanguageServer {
         
         eprintln!("📂 PHPCS LSP: File opened: {} ({} bytes)", file_name, text.len());
 
-        // Just store the document content - diagnostics will be provided via diagnostic() method
+        // Compress and store the document
+        let compressed_doc = self.compress_document(&text);
+        
         {
             let mut docs = self.open_docs.write().unwrap();
-            docs.insert(uri.clone(), text);
+            docs.insert(uri.clone(), compressed_doc);
+            
+            // Log memory stats on significant changes
+            if docs.len() % 25 == 0 {
+                drop(docs); // Release lock before logging
+                self.log_memory_stats();
+            }
+        }
+        
+        // Invalidate any cached results for this file
+        if let Ok(mut cache) = self.results_cache.write() {
+            cache.remove(&uri);
+        }
+        
+        // Log memory stats periodically (every 10 files)
+        if let Ok(docs) = self.open_docs.read() {
+            if docs.len() % 10 == 0 {
+                drop(docs); // Release lock before logging
+                self.log_memory_stats();
+            }
         }
     }
 
@@ -696,8 +850,27 @@ impl LanguageServer for PhpcsLanguageServer {
 
         // With FULL sync, we always get the complete document content
         if let Some(change) = params.content_changes.first() {
+            // Remove old compressed document to update memory tracking
+            let old_size = if let Ok(docs) = self.open_docs.read() {
+                docs.get(&uri).map(|doc| doc.compressed_data.len())
+            } else {
+                None
+            };
+            
+            if let Some(size) = old_size {
+                self.total_memory_usage.fetch_sub(size, Ordering::Relaxed);
+            }
+            
+            // Compress and store new content
+            let compressed_doc = self.compress_document(&change.text);
+            
             let mut docs = self.open_docs.write().unwrap();
-            docs.insert(uri.clone(), change.text.clone());
+            docs.insert(uri.clone(), compressed_doc);
+            
+            // Invalidate cached results since content changed
+            if let Ok(mut cache) = self.results_cache.write() {
+                cache.remove(&uri);
+            }
         }
         
         // Diagnostics will be provided via diagnostic() method
@@ -728,59 +901,104 @@ impl LanguageServer for PhpcsLanguageServer {
 
         if let Ok(file_path) = uri.to_file_path() {
             if let Some(path_str) = file_path.to_str() {
-                // Always prefer in-memory content
-                let content = {
+                // First check if we have cached results
+                if let Ok(cache) = self.results_cache.read() {
+                    if let Some(cached) = cache.get(&uri) {
+                        eprintln!("⚡ PHPCS LSP: Using cached results for {} (age: {:.1}s)", 
+                            file_name,
+                            cached.generated_at.elapsed().as_secs_f64()
+                        );
+                        
+                        // Check if client has the same version
+                        if let Some(previous_result_id) = params.previous_result_id {
+                            if previous_result_id == cached.result_id {
+                                eprintln!("✅ PHPCS LSP: Client has current version for {}", file_name);
+                                return Ok(DocumentDiagnosticReportResult::Report(
+                                    DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
+                                        unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
+                                            result_id: cached.result_id.clone(),
+                                        },
+                                        related_documents: None,
+                                    }),
+                                ));
+                            }
+                        }
+                        
+                        // Return cached diagnostics
+                        return Ok(DocumentDiagnosticReportResult::Report(
+                            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                    result_id: Some(cached.result_id.clone()),
+                                    items: cached.diagnostics.clone(),
+                                },
+                                related_documents: None,
+                            }),
+                        ));
+                    }
+                }
+                
+                // No cached results, need to get content and run PHPCS
+                let compressed_doc = {
                     let docs = self.open_docs.read().unwrap();
                     docs.get(&uri).cloned()
                 };
                 
-                // Only read from disk if document not in memory (rare case)
-                let content = if content.is_none() {
+                // Handle missing document (rare edge case)
+                let compressed_doc = if compressed_doc.is_none() {
+                    // Try to read from disk as fallback
                     match fs::read_to_string(path_str) {
                         Ok(file_content) => {
+                            eprintln!("⚠️ PHPCS LSP: Document not in memory, reading from disk: {}", file_name);
+                            let compressed = self.compress_document(&file_content);
                             let mut docs = self.open_docs.write().unwrap();
-                            docs.insert(uri.clone(), file_content.clone());
-                            drop(docs);
-                            
-                            let docs = self.open_docs.read().unwrap();
-                            docs.get(&uri).cloned()
+                            docs.insert(uri.clone(), compressed.clone());
+                            Some(compressed)
                         }
-                        Err(_) => None
+                        Err(e) => {
+                            eprintln!("❌ PHPCS LSP: Failed to read file {}: {}", file_name, e);
+                            None
+                        }
                     }
                 } else {
-                    content
+                    compressed_doc
                 };
 
-                if let Some(content) = content {
-                    // Generate version ID based on content hash
-                    let mut hasher = Sha256::new();
-                    hasher.update(content.as_bytes());
-                    let content_hash = format!("{:x}", hasher.finalize());
-                    let version_id = format!("{}-{}", &content_hash[..16], content.len());
-                    
-                    eprintln!("📋 PHPCS LSP: Generating diagnostics for {} with version: {}", file_name, version_id);
-                    
-                    // Check if we can return unchanged result
-                    if let Some(previous_result_id) = params.previous_result_id {
-                        if previous_result_id == version_id {
-                            eprintln!("✅ PHPCS LSP: Content unchanged for {}, returning unchanged result", file_name);
+                if let Some(compressed_doc) = compressed_doc {
+                    // Decompress content
+                    let content = match self.decompress_document(&compressed_doc) {
+                        Ok(content) => content,
+                        Err(e) => {
+                            eprintln!("❌ PHPCS LSP: Failed to decompress {}: {}", file_name, e);
                             return Ok(DocumentDiagnosticReportResult::Report(
-                                DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
-                                    unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
-                                        result_id: version_id,
+                                DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                        result_id: None,
+                                        items: vec![],
                                     },
                                     related_documents: None,
                                 }),
                             ));
-                        } else {
-                            eprintln!("🔄 PHPCS LSP: Version changed for {} from {} to {}", 
-                                file_name, previous_result_id, version_id);
                         }
-                    }
+                    };
                     
+                    let version_id = compressed_doc.checksum.clone();
+                    eprintln!("📋 PHPCS LSP: Running PHPCS for {} with version: {}", file_name, &version_id[..16]);
+                    
+                    // Run PHPCS
                     if let Ok(diagnostics) = self.run_phpcs(&uri, path_str, Some(&content)).await {
-                        eprintln!("📊 PHPCS LSP: Returning {} diagnostics for {} with version {}", 
-                            diagnostics.len(), file_name, version_id);
+                        eprintln!("📊 PHPCS LSP: Generated {} diagnostics for {}", 
+                            diagnostics.len(), file_name);
+                        
+                        // Cache the results
+                        let cached_results = CachedResults {
+                            diagnostics: diagnostics.clone(),
+                            result_id: version_id.clone(),
+                            generated_at: Instant::now(),
+                        };
+                        
+                        if let Ok(mut cache) = self.results_cache.write() {
+                            cache.insert(uri.clone(), cached_results);
+                        }
                         
                         return Ok(DocumentDiagnosticReportResult::Report(
                             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {

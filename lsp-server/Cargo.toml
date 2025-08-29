@@ -17,6 +17,7 @@ anyhow = "1.0"
 regex = "1.0"
 url = "2.0"
 sha2 = "0.10"
+lz4_flex = "0.11"
 
 [dev-dependencies]
 tokio-test = "0.4"
