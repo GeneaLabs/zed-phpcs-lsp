@@ -40,6 +40,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 This extension is built using Rust and includes the following dependencies, all with permissive licenses compatible with this project's MIT license:
 
+### LSP Server Dependencies
+
+The Language Server Protocol implementation includes these additional dependencies:
+
+- **tokio** v1.0 (MIT) - Asynchronous runtime for Rust - https://github.com/tokio-rs/tokio
+- **tower-lsp** v0.20 (MIT) - Language Server Protocol implementation - https://github.com/ebkalderon/tower-lsp
+- **tokio-util** v0.7 (MIT) - Additional utilities for Tokio - https://github.com/tokio-rs/tokio
+- **regex** v1.0 (MIT OR Apache-2.0) - Regular expressions for Rust - https://github.com/rust-lang/regex
+- **lz4_flex** v0.11 (MIT) - Pure Rust LZ4 compression - https://github.com/PSeitz/lz4_flex
+
 ### (Apache-2.0 OR MIT) AND Unicode-3.0
 
 - **unicode-ident** v1.0.18 - https://github.com/dtolnay/unicode-ident

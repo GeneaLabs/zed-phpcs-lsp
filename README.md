@@ -21,6 +21,15 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 - **Cross-platform** - Includes binaries for Linux, macOS, and Windows
 - **Flexible configuration** - Via Zed settings, environment variables, or project files
 
+### Performance & Reliability
+
+- **Async process handling** - Non-blocking PHPCS execution keeps editor responsive
+- **Concurrent processing** - Lint up to 4 files simultaneously for faster results
+- **Timeout protection** - Automatic 10-second timeout prevents hanging on large files
+- **Memory optimization** - LZ4 compression reduces memory usage by ~85%
+- **Smart caching** - Results cached to avoid redundant linting on unchanged files
+- **Process management** - Automatic cleanup of zombie processes
+
 ## Quick Start
 
 ### Installation
@@ -32,7 +41,9 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 
 ### Basic Usage
 
-1. **Enable the language server** in your Zed settings.json:
+1. **Ensure the PHPCS extension is installed** in Zed from the Extensions panel
+
+2. **Enable the language server** in your Zed settings.json:
 
 ```json
 {
@@ -44,7 +55,7 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 }
 ```
 
-2. **Open any PHP project** and the extension will start analyzing your code:
+3. **Open any PHP project** and the extension will start analyzing your code:
 
 ```php
 <?php
