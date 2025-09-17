@@ -189,8 +189,8 @@ Specify custom PHPCS/PHPCBF paths in settings.json:
   "lsp": {
     "phpcs": {
       "settings": {
-        "phpcsPath": "/custom/path/to/phpcs",
-        "phpcbfPath": "/custom/path/to/phpcbf"
+        "phpcs_path": "/custom/path/to/phpcs",
+        "phpcbf_path": "/custom/path/to/phpcbf"
       }
     }
   }

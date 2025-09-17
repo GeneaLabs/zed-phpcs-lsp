@@ -18,11 +18,15 @@ use url::Url;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct InitializationOptions {
     standard: Option<String>,
+    phpcs_path: Option<String>,
+    phpcbf_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct PhpcsSettings {
     standard: Option<String>,
+    phpcs_path: Option<String>,
+    phpcbf_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +55,9 @@ struct PhpcsLanguageServer {
     total_memory_usage: std::sync::Arc<AtomicUsize>,
     standard: std::sync::Arc<std::sync::RwLock<Option<String>>>,  // None means use PHPCS defaults
     phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    // User-configured custom paths
+    user_phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    user_phpcbf_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     workspace_root: std::sync::Arc<std::sync::RwLock<Option<std::path::PathBuf>>>,
     // Limit concurrent PHPCS processes to prevent system overload
     process_semaphore: std::sync::Arc<Semaphore>,
@@ -65,6 +72,8 @@ impl PhpcsLanguageServer {
             total_memory_usage: std::sync::Arc::new(AtomicUsize::new(0)),
             standard: std::sync::Arc::new(std::sync::RwLock::new(None)),  // Let PHPCS use its defaults
             phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            user_phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            user_phpcbf_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
             workspace_root: std::sync::Arc::new(std::sync::RwLock::new(None)),
             // Limit to 4 concurrent PHPCS processes to avoid overwhelming the system
             process_semaphore: std::sync::Arc::new(Semaphore::new(4)),
@@ -152,7 +161,15 @@ impl PhpcsLanguageServer {
     }
 
     fn get_phpcs_path(&self) -> String {
-        // First check the cache
+        // Check user-configured path
+        if let Ok(user_guard) = self.user_phpcs_path.read() {
+            if let Some(user_path) = &*user_guard {
+                eprintln!("🎯 PHPCS LSP: Using user-configured PHPCS path: {}", user_path);
+                return user_path.clone();
+            }
+        }
+
+        // Check the auto-detection cache
         if let Ok(guard) = self.phpcs_path.read() {
             if let Some(cached_path) = &*guard {
                 eprintln!("📂 PHPCS LSP: Using cached PHPCS path: {}", cached_path);
@@ -708,6 +725,20 @@ impl LanguageServer for PhpcsLanguageServer {
                     } else {
                         eprintln!("🎯 PHPCS LSP: No standard provided by extension - will use PHPCS defaults");
                     }
+
+                    if let Some(phpcs_path) = init_options.phpcs_path {
+                        eprintln!("🎯 PHPCS LSP: Extension provided phpcsPath: '{}'", phpcs_path);
+                        if let Ok(mut path_guard) = self.user_phpcs_path.write() {
+                            *path_guard = Some(phpcs_path.clone());
+                        }
+                    }
+
+                    if let Some(phpcbf_path) = init_options.phpcbf_path {
+                        eprintln!("🎯 PHPCS LSP: Extension provided phpcbfPath: '{}'", phpcbf_path);
+                        if let Ok(mut path_guard) = self.user_phpcbf_path.write() {
+                            *path_guard = Some(phpcbf_path.clone());
+                        }
+                    }
                 },
                 Err(e) => {
                     eprintln!("❌ PHPCS LSP: Failed to parse initialization options: {}", e);
@@ -805,7 +836,8 @@ impl LanguageServer for PhpcsLanguageServer {
     }
 
     async fn did_change_workspace_folders(&self, _params: DidChangeWorkspaceFoldersParams) {
-        // Clear cached PHPCS path when workspace changes
+        // Clear cached auto-detected PHPCS path when workspace changes
+        // Note: We keep user-configured paths as they should work across workspaces
         if let Ok(mut guard) = self.phpcs_path.write() {
             *guard = None;
         }
@@ -815,7 +847,7 @@ impl LanguageServer for PhpcsLanguageServer {
             cache.clear();
         }
 
-        eprintln!("🔄 PHPCS LSP: Workspace changed, cleared caches");
+        eprintln!("🔄 PHPCS LSP: Workspace changed, cleared auto-detection cache (keeping user paths)");
 
         // Re-detect PHPCS configuration for new workspace
         // This will be done lazily on next PHPCS run
@@ -824,12 +856,8 @@ impl LanguageServer for PhpcsLanguageServer {
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
         eprintln!("🔄 PHPCS LSP: Configuration change detected!");
 
-        // Clear cached PHPCS path to force re-detection
-        if let Ok(mut guard) = self.phpcs_path.write() {
-            *guard = None;
-            eprintln!("🗑️ PHPCS LSP: Cleared cached PHPCS path - will re-detect on next use");
-        }
-
+        let mut path_changed = false;
+        
         // Parse the settings
         if let Some(settings) = params.settings.as_object() {
             // Look for phpcs settings
@@ -838,8 +866,30 @@ impl LanguageServer for PhpcsLanguageServer {
                 if let Ok(parsed_settings) = serde_json::from_value::<PhpcsSettings>(phpcs_settings.clone()) {
                     // Update the standard if provided
                     if let Some(new_standard) = parsed_settings.standard {
+                        eprintln!("⚙️ PHPCS LSP: Runtime config change - standard: '{}'", new_standard);
                         if let Ok(mut standard_guard) = self.standard.write() {
                             *standard_guard = Some(new_standard);
+                        }
+                    }
+                    
+                    // Update custom PHPCS path if provided
+                    if let Some(new_phpcs_path) = parsed_settings.phpcs_path {
+                        eprintln!("📂 PHPCS LSP: Runtime config change - phpcs_path: '{}'", new_phpcs_path);
+                        if let Ok(mut path_guard) = self.user_phpcs_path.write() {
+                            let old_path = path_guard.clone();
+                            *path_guard = Some(new_phpcs_path.clone());
+                            if old_path.as_deref() != Some(&new_phpcs_path) {
+                                path_changed = true;
+                            }
+                        }
+                    }
+                    
+                    // Update custom PHPCBF path if provided
+                    if let Some(new_phpcbf_path) = parsed_settings.phpcbf_path {
+                        eprintln!("📂 PHPCS LSP: Runtime config change - phpcbf_path: '{}'", new_phpcbf_path);
+                        if let Ok(mut path_guard) = self.user_phpcbf_path.write() {
+                            *path_guard = Some(new_phpcbf_path);
+                            path_changed = true; // Always clear cache when phpcbf path changes
                         }
                     }
                 }
@@ -852,6 +902,37 @@ impl LanguageServer for PhpcsLanguageServer {
                         *standard_guard = Some(new_standard.to_string());
                     }
                 }
+            }
+            
+            if let Some(phpcs_path_value) = settings.get("phpcs_path") {
+                if let Some(new_phpcs_path) = phpcs_path_value.as_str() {
+                    eprintln!("📂 PHPCS LSP: Runtime config change (compat) - phpcs_path: '{}'", new_phpcs_path);
+                    if let Ok(mut path_guard) = self.user_phpcs_path.write() {
+                        let old_path = path_guard.clone();
+                        *path_guard = Some(new_phpcs_path.to_string());
+                        if old_path.as_deref() != Some(new_phpcs_path) {
+                            path_changed = true;
+                        }
+                    }
+                }
+            }
+            
+            if let Some(phpcbf_path_value) = settings.get("phpcbf_path") {
+                if let Some(new_phpcbf_path) = phpcbf_path_value.as_str() {
+                    eprintln!("📂 PHPCS LSP: Runtime config change (compat) - phpcbf_path: '{}'", new_phpcbf_path);
+                    if let Ok(mut path_guard) = self.user_phpcbf_path.write() {
+                        *path_guard = Some(new_phpcbf_path.to_string());
+                        path_changed = true;
+                    }
+                }
+            }
+        }
+
+        // Clear auto-detection cache if paths changed
+        if path_changed {
+            if let Ok(mut guard) = self.phpcs_path.write() {
+                *guard = None;
+                eprintln!("🗑️ PHPCS LSP: Cleared auto-detection cache due to path changes");
             }
         }
 

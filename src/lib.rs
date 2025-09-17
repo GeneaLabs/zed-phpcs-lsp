@@ -173,6 +173,30 @@ impl zed::Extension for PhpcsLspExtension {
         // Download PHPCBF PHAR to LSP server directory - LSP server will find it automatically  
         Self::download_phar_if_needed("phpcbf.phar").ok();
         
+        // Extract custom paths from user settings
+        let mut phpcs_path_to_use: Option<String> = None;
+        let mut phpcbf_path_to_use: Option<String> = None;
+        
+        if let Some(ref settings) = user_settings {
+            // Check for phpcsPath setting
+            if let Some(phpcs_path_value) = settings.get("phpcs_path") {
+                if let Some(phpcs_path_str) = phpcs_path_value.as_str() {
+                    if !phpcs_path_str.trim().is_empty() {
+                        phpcs_path_to_use = Some(phpcs_path_str.to_string());
+                    }
+                }
+            }
+            
+            // Check for phpcbfPath setting
+            if let Some(phpcbf_path_value) = settings.get("phpcbf_path") {
+                if let Some(phpcbf_path_str) = phpcbf_path_value.as_str() {
+                    if !phpcbf_path_str.trim().is_empty() {
+                        phpcbf_path_to_use = Some(phpcbf_path_str.to_string());
+                    }
+                }
+            }
+        }
+        
         // Determine standard/config to use (priority order: config file -> settings -> env -> default)
         let mut standard_to_use: Option<String> = None;
         
@@ -225,6 +249,16 @@ impl zed::Extension for PhpcsLspExtension {
         // Pass the standard to the LSP server if we have one
         if let Some(standard) = standard_to_use {
             options.insert("standard".to_string(), zed::serde_json::Value::String(standard.clone()));
+        }
+        
+        // Pass custom PHPCS path to the LSP server if configured
+        if let Some(phpcs_path) = phpcs_path_to_use {
+            options.insert("phpcs_path".to_string(), zed::serde_json::Value::String(phpcs_path));
+        }
+        
+        // Pass custom PHPCBF path to the LSP server if configured
+        if let Some(phpcbf_path) = phpcbf_path_to_use {
+            options.insert("phpcbf_path".to_string(), zed::serde_json::Value::String(phpcbf_path));
         }
         
         if options.is_empty() {
