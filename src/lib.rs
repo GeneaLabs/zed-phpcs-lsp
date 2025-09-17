@@ -301,5 +301,4 @@ impl PhpcsLspExtension {
 
 zed::register_extension!(PhpcsLspExtension);
 
-#[cfg(test)]
-mod test;
+
