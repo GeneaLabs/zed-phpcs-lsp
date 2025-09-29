@@ -12,6 +12,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [dev-dependencies]
-tempfile = "3.22"
+tempfile = "3.23"
 
 [target.wasm32-wasip1]
