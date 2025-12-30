@@ -128,10 +128,10 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             binary_name: phpcs-lsp-server-linux-x64
           - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
             binary_name: phpcs-lsp-server-linux-arm64
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -154,19 +154,30 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install musl tools
+        if: contains(matrix.target, 'linux-musl')
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y musl-tools
 
-      - name: Configure cross-compilation
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install cross-compilation tools (aarch64-musl)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          # Install cross-compilation toolchain for aarch64-musl
+          sudo apt-get install -y clang llvm
+          # Download and install musl cross-compiler
+          curl -LO https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar xzf aarch64-linux-musl-cross.tgz
+          sudo mv aarch64-linux-musl-cross /opt/
+          echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+
+      - name: Configure cross-compilation (aarch64-musl)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
           mkdir -p ~/.cargo
           cat >> ~/.cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-musl-gcc"
           EOF
 
       - name: Build LSP Server
