@@ -60,6 +60,7 @@ struct PhpcsLanguageServer {
     standard: std::sync::Arc<std::sync::RwLock<Option<String>>>,  // None means use PHPCS defaults
     // Cached auto-detected paths
     phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    #[allow(dead_code)] // Reserved for future phpcbf formatting support
     phpcbf_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     // User-configured custom paths
     user_phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
@@ -215,6 +216,7 @@ impl PhpcsLanguageServer {
         )
     }
 
+    #[allow(dead_code)] // Reserved for future phpcbf formatting support
     fn get_phpcbf_path(&self) -> String {
         self.get_tool_path(
             PhpTool::Phpcbf,
@@ -259,9 +261,9 @@ impl PhpcsLanguageServer {
     async fn run_phpcs(&self, uri: &Url, _file_path: &str, content: Option<&str>) -> Result<Vec<Diagnostic>> {
         let start_time = Instant::now();
         let file_name = uri.path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .unwrap_or("unknown");
-        
+
         eprintln!("🔍 PHPCS LSP: Starting lint for file: {}", file_name);
         
         // Acquire semaphore permit to limit concurrent PHPCS processes
@@ -935,7 +937,7 @@ impl LanguageServer for PhpcsLanguageServer {
         let text = params.text_document.text;
 
         let file_name = uri.path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .unwrap_or("unknown");
 
         eprintln!("📂 PHPCS LSP: File opened: {} ({} bytes)", file_name, text.len());
@@ -948,7 +950,7 @@ impl LanguageServer for PhpcsLanguageServer {
             docs.insert(uri.clone(), compressed_doc);
 
             // Log memory stats on significant changes
-            if docs.len() % 25 == 0 {
+            if docs.len().is_multiple_of(25) {
                 drop(docs); // Release lock before logging
                 self.log_memory_stats();
             }
@@ -1004,7 +1006,7 @@ impl LanguageServer for PhpcsLanguageServer {
         let uri = params.text_document.uri;
 
         let file_name = uri.path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .unwrap_or("unknown");
 
         eprintln!("💾 PHPCS LSP: File saved: {}", file_name);
@@ -1019,7 +1021,7 @@ impl LanguageServer for PhpcsLanguageServer {
     ) -> LspResult<DocumentDiagnosticReportResult> {
         let uri = params.text_document.uri;
         let file_name = uri.path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .unwrap_or("unknown");
 
         if let Ok(file_path) = uri.to_file_path() {
@@ -1156,7 +1158,7 @@ async fn main() -> Result<()> {
     let stdin = stdin();
     let stdout = stdout();
 
-    let (service, socket) = LspService::new(|client| PhpcsLanguageServer::new(client));
+    let (service, socket) = LspService::new(PhpcsLanguageServer::new);
     Server::new(stdin, stdout, socket).serve(service).await;
 
     Ok(())

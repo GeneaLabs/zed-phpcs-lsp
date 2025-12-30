@@ -3,6 +3,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy)]
 pub enum PhpTool {
     Phpcs,
+    #[allow(dead_code)] // Reserved for future phpcbf formatting support
     Phpcbf,
 }
 
