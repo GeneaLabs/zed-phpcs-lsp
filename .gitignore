@@ -1,3 +1,4 @@
+/.laravel-lsp
 
 # Rust build artifacts
 target/
