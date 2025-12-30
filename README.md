@@ -18,7 +18,7 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 - **Multiple standards** - PSR-12, PSR-2, Squiz, Slevomat, custom rulesets  
 - **Project awareness** - Automatically discovers phpcs.xml configuration
 - **Smart PHPCS detection** - Prefers project-local installations with dependencies
-- **Cross-platform** - Includes binaries for Linux, macOS, and Windows
+- **Cross-platform** - Static binaries for Linux (musl), macOS, and Windows
 - **Flexible configuration** - Via Zed settings, environment variables, or project files
 
 ### Performance & Reliability
@@ -172,10 +172,10 @@ export PHPCBF_PATH="/custom/path/to/phpcbf"
 The extension finds PHPCS in this priority order:
 
 1. **Project composer** - `vendor/bin/phpcs` (includes project dependencies like Slevomat)
-2. **Bundled PHAR** - Modern PHPCS v3.13.2+ (included with extension) 
-3. **System PATH** - Global phpcs installation
+2. **System PATH** - Global phpcs installation (respects your `phpcs --config-set` settings)
+3. **Bundled PHAR** - Modern PHPCS v3.13.2+ (fallback, included with extension)
 
-> **💡 Enhanced Compatibility:** The extension now prioritizes your project's local PHPCS installation, ensuring full compatibility with Composer-installed coding standards like Slevomat, custom rules, and the exact PHPCS version your project requires.
+> **💡 Global Config Support:** The extension now respects your system PHPCS configuration. Set global defaults with `phpcs --config-set default_standard PSR12` or `phpcs --config-set installed_paths /path/to/sniffs` and they'll work automatically without any Zed configuration.
 
 </details>
 
