@@ -248,5 +248,11 @@ jobs:
           extension-name: phpcs
           push-to: mikebronner/extensions
           tag-name: ${{ needs.update-version.outputs.new_version }}
+          commit-message: |
+            Update {{extensionName}} to {{version}}
+
+            Release notes:
+
+            https://github.com/{{owner}}/{{repo}}/releases/tag/{{version}}
         env:
           COMMITTER_TOKEN: ${{ secrets.ZED_PUBLISHING_TOKEN }}
