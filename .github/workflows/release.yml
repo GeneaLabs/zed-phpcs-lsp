@@ -26,10 +26,7 @@ jobs:
           ref: main
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Extract version from release tag
         id: extract_version
@@ -198,19 +195,9 @@ jobs:
           fi
 
       - name: Upload Release Asset
-        if: github.event_name == 'release'
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ env.ASSET_PATH }}
-          asset_name: ${{ env.ASSET_PATH }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload to specific release
-        if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.tag }}
           files: ${{ env.ASSET_PATH }}
           token: ${{ env.GITHUB_TOKEN }}
 
@@ -239,29 +226,10 @@ jobs:
           tar -czf phpcs.phar.tar.gz phpcs.phar
           tar -czf phpcbf.phar.tar.gz phpcbf.phar
 
-      - name: Upload PHPCS PHAR
-        if: github.event_name == 'release'
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: phpcs.phar.tar.gz
-          asset_name: phpcs.phar.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload PHPCBF PHAR
-        if: github.event_name == 'release'
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: phpcbf.phar.tar.gz
-          asset_name: phpcbf.phar.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload PHARs to specific release
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload PHAR files
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.tag }}
           files: |
             phpcs.phar.tar.gz
             phpcbf.phar.tar.gz
