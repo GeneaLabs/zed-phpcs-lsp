@@ -246,7 +246,7 @@ jobs:
       - uses: huacnlee/zed-extension-action@v1
         with:
           extension-name: phpcs
-          push-to: GeneaLabs/extensions
+          push-to: mikebronner/extensions
           tag-name: ${{ needs.update-version.outputs.new_version }}
         env:
           COMMITTER_TOKEN: ${{ secrets.ZED_PUBLISHING_TOKEN }}
