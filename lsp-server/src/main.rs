@@ -1,3 +1,5 @@
+mod tools;
+
 use anyhow::Result;
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use serde::{Deserialize, Serialize};
@@ -14,6 +16,8 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use url::Url;
+
+use tools::PhpTool;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct InitializationOptions {
@@ -54,7 +58,9 @@ struct PhpcsLanguageServer {
     // Memory tracking
     total_memory_usage: std::sync::Arc<AtomicUsize>,
     standard: std::sync::Arc<std::sync::RwLock<Option<String>>>,  // None means use PHPCS defaults
+    // Cached auto-detected paths
     phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    phpcbf_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     // User-configured custom paths
     user_phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     user_phpcbf_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
@@ -72,6 +78,7 @@ impl PhpcsLanguageServer {
             total_memory_usage: std::sync::Arc::new(AtomicUsize::new(0)),
             standard: std::sync::Arc::new(std::sync::RwLock::new(None)),  // Let PHPCS use its defaults
             phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            phpcbf_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
             user_phpcs_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
             user_phpcbf_path: std::sync::Arc::new(std::sync::RwLock::new(None)),
             workspace_root: std::sync::Arc::new(std::sync::RwLock::new(None)),
@@ -160,83 +167,60 @@ impl PhpcsLanguageServer {
         }
     }
 
-    fn get_phpcs_path(&self) -> String {
-        // Check user-configured path
-        if let Ok(user_guard) = self.user_phpcs_path.read() {
-            if let Some(user_path) = &*user_guard {
-                eprintln!("🎯 PHPCS LSP: Using user-configured PHPCS path: {}", user_path);
-                return user_path.clone();
+    fn get_tool_path(
+        &self,
+        tool: PhpTool,
+        user_path: &std::sync::RwLock<Option<String>>,
+        cache: &std::sync::RwLock<Option<String>>,
+    ) -> String {
+        let display = tool.display_name();
+
+        // 1. Check user-configured path
+        if let Ok(user_guard) = user_path.read() {
+            if let Some(path) = &*user_guard {
+                eprintln!("🎯 PHPCS LSP: Using user-configured {} path: {}", display, path);
+                return path.clone();
             }
         }
 
-        // Check the auto-detection cache
-        if let Ok(guard) = self.phpcs_path.read() {
+        // 2. Check cache
+        if let Ok(guard) = cache.read() {
             if let Some(cached_path) = &*guard {
-                eprintln!("📂 PHPCS LSP: Using cached PHPCS path: {}", cached_path);
+                eprintln!("📂 PHPCS LSP: Using cached {} path: {}", display, cached_path);
                 return cached_path.clone();
             }
         }
 
-        eprintln!("🔍 PHPCS LSP: Detecting PHPCS path...");
+        eprintln!("🔍 PHPCS LSP: Detecting {} path...", display);
 
-        // Not cached, find and cache it
-        let phpcs_path = {
-            // First priority: Check for project-local vendor/bin/phpcs
-            if let Ok(workspace_guard) = self.workspace_root.read() {
-                if let Some(ref workspace_root) = *workspace_guard {
-                    let vendor_phpcs = workspace_root.join("vendor/bin/phpcs");
-                    eprintln!("🔍 PHPCS LSP: Checking for project PHPCS at: {}", vendor_phpcs.display());
+        // 3. Auto-detect and cache
+        let workspace_root = self.workspace_root.read().ok().and_then(|guard| guard.clone());
+        let path = tools::detect_tool_path(tool, workspace_root.as_deref());
 
-                    if vendor_phpcs.exists() {
-                        eprintln!("✅ PHPCS LSP: Found project-local PHPCS");
-                        vendor_phpcs.to_string_lossy().to_string()
-                    } else {
-                        eprintln!("❌ PHPCS LSP: No project-local PHPCS found");
-                        self.get_bundled_or_system_phpcs()
-                    }
-                } else {
-                    eprintln!("❌ PHPCS LSP: No workspace root available");
-                    self.get_bundled_or_system_phpcs()
-                }
-            } else {
-                eprintln!("❌ PHPCS LSP: Could not access workspace root");
-                self.get_bundled_or_system_phpcs()
-            }
-        };
-
-        eprintln!("🎯 PHPCS LSP: Final PHPCS path: {}", phpcs_path);
+        eprintln!("🎯 PHPCS LSP: Final {} path: {}", display, path);
 
         // Cache the result
-        if let Ok(mut guard) = self.phpcs_path.write() {
-            *guard = Some(phpcs_path.clone());
+        if let Ok(mut guard) = cache.write() {
+            *guard = Some(path.clone());
         }
 
-        phpcs_path
+        path
     }
 
-    fn get_bundled_or_system_phpcs(&self) -> String {
-        // Second priority: Check for bundled PHPCS
-        if let Ok(current_exe) = std::env::current_exe() {
-            if let Some(exe_dir) = current_exe.parent() {
-                let bundled_phpcs = exe_dir.join("phpcs.phar");
-                eprintln!("🔍 PHPCS LSP: Checking for bundled PHPCS at: {}", bundled_phpcs.display());
+    fn get_phpcs_path(&self) -> String {
+        self.get_tool_path(
+            PhpTool::Phpcs,
+            &self.user_phpcs_path,
+            &self.phpcs_path,
+        )
+    }
 
-                if bundled_phpcs.exists() {
-                    eprintln!("✅ PHPCS LSP: Found bundled PHPCS PHAR");
-                    return bundled_phpcs.to_string_lossy().to_string();
-                } else {
-                    eprintln!("❌ PHPCS LSP: No bundled PHPCS found");
-                }
-            } else {
-                eprintln!("❌ PHPCS LSP: Could not get LSP directory");
-            }
-        } else {
-            eprintln!("❌ PHPCS LSP: Could not get current executable path");
-        }
-
-        // Third priority: Fall back to system phpcs
-        eprintln!("🔄 PHPCS LSP: Using system phpcs");
-        "phpcs".to_string()
+    fn get_phpcbf_path(&self) -> String {
+        self.get_tool_path(
+            PhpTool::Phpcbf,
+            &self.user_phpcbf_path,
+            &self.phpcbf_path,
+        )
     }
 
     fn discover_standard(&self, workspace_root: Option<&std::path::Path>) {
