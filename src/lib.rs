@@ -93,7 +93,7 @@ impl PhpcsLspServer {
             .map_err(|e| format!("Failed to download binary from release: {}. Please ensure the release {} exists with assets.", e, VERSION))?;
         
         // After extraction, the file should be in the bin directory
-        if !fs::metadata(&binary_path).is_ok() {
+        if fs::metadata(&binary_path).is_err() {
             return Err(format!("Binary not found after extraction. Expected at: {}", binary_path));
         }
         
@@ -146,7 +146,7 @@ impl zed::Extension for PhpcsLspExtension {
                 phpcs_lsp.language_server_command(language_server_id, worktree)
             }
             language_server_id => {
-                Err(format!("unknown language server: {language_server_id}").into())
+                Err(format!("unknown language server: {language_server_id}"))
             }
         }
     }
@@ -296,7 +296,7 @@ impl PhpcsLspExtension {
             .map_err(|e| format!("Failed to download {} from release: {}. Please ensure the release {} exists with assets.", phar_name, e, VERSION))?;
         
         // After extraction, the file should be in the bin directory
-        if !fs::metadata(&phar_path).is_ok() {
+        if fs::metadata(&phar_path).is_err() {
             return Err(format!("{} not found after extraction. Expected at: {}", phar_name, phar_path));
         }
         
