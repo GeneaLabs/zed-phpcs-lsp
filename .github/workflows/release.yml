@@ -19,7 +19,7 @@ jobs:
         new_version: ${{ steps.extract_version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ env.GITHUB_TOKEN }}
           fetch-depth: 0
@@ -144,7 +144,7 @@ jobs:
             binary_name: phpcs-lsp-server-windows-arm64.exe
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -206,7 +206,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download PHPCS and PHPCBF PHARs
         run: |
