@@ -314,6 +314,45 @@ echo '<?xml version="1.0"?>
 
 </details>
 
+## Contributing
+
+### Development Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/GeneaLabs/zed-phpcs-lsp.git
+   cd zed-phpcs-lsp
+   ```
+
+2. **Build the LSP server:**
+   ```bash
+   cd lsp-server
+   cargo build --release
+   ```
+
+3. **Configure Zed to use local build:**
+
+   Create `.zed/settings.json` in the project root:
+   ```json
+   {
+     "lsp": {
+       "phpcs": {
+         "binary": {
+           "path": "lsp-server/target/release/phpcs-lsp-server"
+         }
+       }
+     }
+   }
+   ```
+
+4. **Open the project in Zed** and edit PHP files to test your changes.
+
+> **Note:** The `.zed/` folder is gitignored to avoid conflicts with user settings.
+
+### Testing
+
+Create PHP files with intentional PHPCS violations in `test-files/` to verify diagnostics and code actions are working correctly. This folder is gitignored.
+
 ## Resources & Credits
 
 ### Learn More

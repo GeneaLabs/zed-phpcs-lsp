@@ -12,6 +12,7 @@ lsp-server/target/
 # IDE and editor files
 .vscode/
 .idea/
+.zed/
 *.swp
 *.swo
 *~
@@ -34,3 +35,6 @@ __pycache__/
 .swarm/
 lsp-server/.claude*/
 lsp-server/.swarm/
+
+# Test files
+test-files/

@@ -16,6 +16,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use url::Url;
+use urlencoding;
 
 use tools::PhpTool;
 
@@ -60,7 +61,6 @@ struct PhpcsLanguageServer {
     standard: std::sync::Arc<std::sync::RwLock<Option<String>>>,  // None means use PHPCS defaults
     // Cached auto-detected paths
     phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
-    #[allow(dead_code)] // Reserved for future phpcbf formatting support
     phpcbf_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
     // User-configured custom paths
     user_phpcs_path: std::sync::Arc<std::sync::RwLock<Option<String>>>,
@@ -68,6 +68,58 @@ struct PhpcsLanguageServer {
     workspace_root: std::sync::Arc<std::sync::RwLock<Option<std::path::PathBuf>>>,
     // Limit concurrent PHPCS processes to prevent system overload
     process_semaphore: std::sync::Arc<Semaphore>,
+}
+
+/// Generate a documentation URL for a PHPCS sniff based on its source identifier.
+///
+/// Routes to appropriate documentation based on the standard:
+/// - PSR1/PSR2/PSR12 → PHPCS Wiki customisable sniff properties
+/// - Generic/Squiz/PEAR/Zend → PHPCS Wiki customisable sniff properties
+/// - Unknown standards → GitHub search fallback
+fn generate_phpcs_doc_url(source: &str) -> Option<Url> {
+    if source.is_empty() {
+        return None;
+    }
+
+    // Parse the source: e.g., "PSR12.Files.OpenTag" -> standard is "PSR12"
+    let parts: Vec<&str> = source.split('.').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let standard = parts[0];
+    let url_str = match standard {
+        // Standard PHPCS sniffs - link to the wiki with anchor
+        "PSR1" | "PSR2" | "PSR12" | "Generic" | "Squiz" | "PEAR" | "Zend" | "MySource" => {
+            format!(
+                "https://github.com/PHPCSStandards/PHP_CodeSniffer/wiki/Customisable-Sniff-Properties#{}",
+                source.to_lowercase().replace('.', "-")
+            )
+        }
+        // WordPress coding standards
+        "WordPress" | "WordPress-Core" | "WordPress-Docs" | "WordPress-Extra" => {
+            format!(
+                "https://developer.wordpress.org/coding-standards/wordpress-coding-standards/php/#{}",
+                parts.get(1).unwrap_or(&"").to_lowercase()
+            )
+        }
+        // Slevomat coding standard
+        "SlevomatCodingStandard" => {
+            format!(
+                "https://github.com/slevomat/coding-standard#{}",
+                source.to_lowercase().replace('.', "-")
+            )
+        }
+        // Fallback: search on PHPCS GitHub
+        _ => {
+            format!(
+                "https://github.com/PHPCSStandards/PHP_CodeSniffer/search?q={}",
+                urlencoding::encode(source)
+            )
+        }
+    };
+
+    Url::parse(&url_str).ok()
 }
 
 impl PhpcsLanguageServer {
@@ -216,13 +268,143 @@ impl PhpcsLanguageServer {
         )
     }
 
-    #[allow(dead_code)] // Reserved for future phpcbf formatting support
     fn get_phpcbf_path(&self) -> String {
         self.get_tool_path(
             PhpTool::Phpcbf,
             &self.user_phpcbf_path,
             &self.phpcbf_path,
         )
+    }
+
+    /// Run phpcbf to fix code style issues and return the fixed content
+    /// If `sniff_filter` is provided, only fixes for that specific sniff will be applied
+    async fn run_phpcbf(&self, uri: &Url, content: &str, sniff_filter: Option<&str>) -> Result<String> {
+        let file_name = uri.path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .unwrap_or("unknown");
+
+        eprintln!("🔧 PHPCS LSP: Running phpcbf on {}{}", file_name,
+            sniff_filter.map(|s| format!(" (sniff: {})", s)).unwrap_or_default());
+
+        let phpcbf_path = self.get_phpcbf_path();
+
+        let mut cmd = ProcessCommand::new(&phpcbf_path);
+        cmd.arg("--no-colors")
+           .arg("-q");
+
+        // Add standard if configured
+        if let Ok(standard_guard) = self.standard.read() {
+            if let Some(ref standard) = *standard_guard {
+                if !((standard.starts_with('/') || standard.starts_with("./") || standard.ends_with(".xml"))
+                    && !std::path::Path::new(standard).exists()) {
+                    cmd.arg(format!("--standard={}", standard));
+                }
+            }
+        }
+
+        // Add sniff filter if provided
+        if let Some(sniff) = sniff_filter {
+            cmd.arg(format!("--sniffs={}", sniff));
+        }
+
+        // Use stdin with stdin-path for proper file context
+        if let Ok(file_path) = uri.to_file_path() {
+            cmd.arg(format!("--stdin-path={}", file_path.display()));
+        }
+        cmd.arg("-");
+
+        cmd.stdin(std::process::Stdio::piped())
+           .stdout(std::process::Stdio::piped())
+           .stderr(std::process::Stdio::piped())
+           .kill_on_drop(true);
+
+        let mut child = cmd.spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to spawn phpcbf: {}", e))?;
+
+        // Write content to stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt;
+            stdin.write_all(content.as_bytes()).await
+                .map_err(|e| anyhow::anyhow!("Failed to write to phpcbf stdin: {}", e))?;
+            drop(stdin);
+        }
+
+        // Wait for output with timeout
+        let output = timeout(Duration::from_secs(30), child.wait_with_output()).await
+            .map_err(|_| anyhow::anyhow!("phpcbf timeout"))?
+            .map_err(|e| anyhow::anyhow!("phpcbf error: {}", e))?;
+
+        // phpcbf exit codes:
+        // 0 = No fixable errors found
+        // 1 = All fixable errors were fixed
+        // 2 = Some errors fixed, but unfixable errors remain (still success for our purposes)
+        // 3+ = Processing error
+        let exit_code = output.status.code().unwrap_or(-1);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout_len = output.stdout.len();
+
+        eprintln!("📊 PHPCS LSP: phpcbf exit code: {}, stdout: {} bytes, stderr: {}",
+            exit_code, stdout_len, if stderr.is_empty() { "(empty)" } else { &stderr });
+
+        if exit_code > 2 {
+            eprintln!("❌ PHPCS LSP: phpcbf error (exit {}): {}", exit_code, stderr);
+            return Err(anyhow::anyhow!("phpcbf failed with exit code {}: {}", exit_code, stderr));
+        }
+
+        let fixed_content = String::from_utf8(output.stdout)
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 from phpcbf: {}", e))?;
+
+        eprintln!("✅ PHPCS LSP: phpcbf completed for {} (exit code {})", file_name, exit_code);
+        Ok(fixed_content)
+    }
+
+    /// Compute TextEdits for changes affecting specific lines only
+    /// Returns edits that modify lines within the given range (inclusive)
+    fn compute_line_edits(
+        original: &str,
+        fixed: &str,
+        target_start_line: u32,
+        target_end_line: u32,
+    ) -> Vec<TextEdit> {
+        let original_lines: Vec<&str> = original.lines().collect();
+        let fixed_lines: Vec<&str> = fixed.lines().collect();
+
+        let mut edits = Vec::new();
+
+        // Simple line-by-line comparison
+        // Find contiguous regions of changes that overlap with target lines
+        let max_lines = original_lines.len().max(fixed_lines.len());
+        let mut i = 0;
+
+        while i < max_lines {
+            let orig_line = original_lines.get(i).copied();
+            let fixed_line = fixed_lines.get(i).copied();
+
+            if orig_line != fixed_line {
+                // Found a difference - check if it's in our target range
+                let line_num = i as u32;
+
+                // Check if this change affects our target lines
+                if line_num >= target_start_line && line_num <= target_end_line {
+                    // Create an edit for this specific line
+                    let start = Position { line: line_num, character: 0 };
+                    let end = Position {
+                        line: line_num,
+                        character: orig_line.map(|l| l.len() as u32).unwrap_or(0),
+                    };
+
+                    let new_text = fixed_line.unwrap_or("").to_string();
+
+                    edits.push(TextEdit {
+                        range: Range { start, end },
+                        new_text,
+                    });
+                }
+            }
+            i += 1;
+        }
+
+        edits
     }
 
     fn discover_standard(&self, workspace_root: Option<&std::path::Path>) {
@@ -538,6 +720,19 @@ impl PhpcsLanguageServer {
         // Create enhanced source with standard information
         let enhanced_source = "phpcs".to_string();
 
+        // Prefix fixable messages with wrench emoji to indicate quick fix available
+        let display_message = if fixable {
+            format!("🛠️ {}", msg)
+        } else {
+            msg.to_string()
+        };
+
+        // Generate documentation URL for the sniff
+        let code_description = generate_phpcs_doc_url(source)
+            .map(|href| CodeDescription { href });
+
+        // Extract related information for context
+        let related_information = self.extract_related_information(msg, uri, line);
 
         // Store additional data for potential future features
         let data = serde_json::json!({
@@ -555,12 +750,57 @@ impl PhpcsLanguageServer {
                 None
             },
             source: Some(enhanced_source),
-            message: msg.to_string(),
-            related_information: None,
+            message: display_message,
+            related_information,
             tags: None,
-            code_description: None,
+            code_description,
             data: Some(data),
         })
+    }
+
+    /// Extract related information from PHPCS messages that reference other locations.
+    ///
+    /// This provides additional context for certain error types:
+    /// - Opening/closing brace mismatches
+    /// - Expected vs found comparisons
+    /// - Duplicate declarations
+    fn extract_related_information(&self, msg: &str, uri: &Url, _current_line: u32) -> Option<Vec<DiagnosticRelatedInformation>> {
+        let mut related = Vec::new();
+
+        // Pattern: "Opening brace" / "Closing brace" errors - provide context
+        if msg.contains("Opening brace") || msg.contains("Closing brace") {
+            // Add a hint about brace placement rules
+            related.push(DiagnosticRelatedInformation {
+                location: Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: 0, character: 0 },
+                    },
+                },
+                message: "PSR-12 requires specific brace placement for control structures and declarations".to_string(),
+            });
+        }
+
+        // Pattern: Namespace/use statement ordering issues
+        if msg.contains("use statement") || msg.contains("namespace") {
+            related.push(DiagnosticRelatedInformation {
+                location: Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: 0, character: 0 },
+                    },
+                },
+                message: "PSR-12 requires specific ordering: namespace → use statements → class declaration".to_string(),
+            });
+        }
+
+        if related.is_empty() {
+            None
+        } else {
+            Some(related)
+        }
     }
 
     fn find_tag_range(&self, line_content: &str, line: u32, column: u32) -> Range {
@@ -755,6 +995,13 @@ impl LanguageServer for PhpcsLanguageServer {
                         identifier: Some("phpcs".to_string()),
                         inter_file_dependencies: false,
                         workspace_diagnostics: false,
+                        ..Default::default()
+                    },
+                )),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        resolve_provider: Some(false),
                         ..Default::default()
                     },
                 )),
@@ -1150,6 +1397,226 @@ impl LanguageServer for PhpcsLanguageServer {
                 related_documents: None,
             }),
         ))
+    }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> LspResult<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let file_name = uri.path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .unwrap_or("unknown");
+
+        eprintln!("💡 PHPCS LSP: Code action requested for {}", file_name);
+
+        // Get the document content first
+        let content = {
+            let docs = self.open_docs.read().map_err(|_| {
+                tower_lsp::jsonrpc::Error::internal_error()
+            })?;
+
+            if let Some(compressed_doc) = docs.get(&uri) {
+                self.decompress_document(compressed_doc).ok()
+            } else {
+                None
+            }
+        };
+
+        let Some(content) = content else {
+            eprintln!("❌ PHPCS LSP: No document content for {}", file_name);
+            return Ok(Some(vec![]));
+        };
+
+        // Check if any diagnostics in the ENTIRE file are fixable
+        let file_has_fixable = {
+            let cache = self.results_cache.read().map_err(|_| {
+                tower_lsp::jsonrpc::Error::internal_error()
+            })?;
+
+            if let Some(cached) = cache.get(&uri) {
+                cached.diagnostics.iter().any(|diag| {
+                    diag.data.as_ref()
+                        .and_then(|d| d.get("fixable"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                })
+            } else {
+                false
+            }
+        };
+
+        if !file_has_fixable {
+            eprintln!("ℹ️ PHPCS LSP: No fixable diagnostics in file");
+            return Ok(Some(vec![]));
+        }
+
+        let mut code_actions: Vec<CodeActionOrCommand> = Vec::new();
+
+        // Debug: log all diagnostics received
+        eprintln!("💡 PHPCS LSP: Received {} diagnostics at cursor", params.context.diagnostics.len());
+        for (i, diag) in params.context.diagnostics.iter().enumerate() {
+            eprintln!("  📋 Diag {}: source={:?}, code={:?}, fixable={:?}",
+                i,
+                diag.source,
+                diag.code,
+                diag.data.as_ref().and_then(|d| d.get("fixable"))
+            );
+        }
+
+        // Collect fixable diagnostics at cursor position
+        let fixable_at_cursor: Vec<_> = params.context.diagnostics.iter()
+            .filter(|diag| {
+                diag.source.as_deref() == Some("phpcs") &&
+                diag.data.as_ref()
+                    .and_then(|d| d.get("fixable"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        eprintln!("💡 PHPCS LSP: Found {} fixable diagnostics at cursor", fixable_at_cursor.len());
+
+        // Track unique sniff types for "Fix all X issues" actions
+        let mut seen_sniffs: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // 1. Add single-line fix actions for each fixable diagnostic at cursor
+        for diag in &fixable_at_cursor {
+            // Get the full message code (e.g., "Squiz.ControlStructures.ControlSignature.SpaceAfterCloseBrace")
+            let full_code = diag.code.as_ref().and_then(|c| match c {
+                tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.clone()),
+                tower_lsp::lsp_types::NumberOrString::Number(n) => Some(n.to_string()),
+            });
+
+            // Extract sniff code (first 3 parts) from message code (4 parts)
+            // "Squiz.ControlStructures.ControlSignature.SpaceAfterCloseBrace" -> "Squiz.ControlStructures.ControlSignature"
+            let sniff_code = full_code.as_ref().and_then(|code| {
+                let parts: Vec<&str> = code.split('.').collect();
+                if parts.len() >= 3 {
+                    Some(parts[..3].join("."))
+                } else {
+                    None
+                }
+            });
+
+            if let Some(ref sniff) = sniff_code {
+                // Run phpcbf with sniff filter for single-line fix
+                if let Ok(fixed_content) = self.run_phpcbf(&uri, &content, Some(sniff)).await {
+                    let target_line = diag.range.start.line;
+                    let line_edits = Self::compute_line_edits(
+                        &content,
+                        &fixed_content,
+                        target_line,
+                        diag.range.end.line,
+                    );
+
+                    if !line_edits.is_empty() {
+                        let mut changes = HashMap::new();
+                        changes.insert(uri.clone(), line_edits);
+
+                        let workspace_edit = WorkspaceEdit {
+                            changes: Some(changes),
+                            document_changes: None,
+                            change_annotations: None,
+                        };
+
+                        code_actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: format!("🎯 Fix this {} issue", sniff),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![(*diag).clone()]),
+                            edit: Some(workspace_edit),
+                            command: None,
+                            is_preferred: Some(false),
+                            disabled: None,
+                            data: None,
+                        }));
+                    }
+                }
+
+                // Track sniff for "Fix all X issues" action
+                seen_sniffs.insert(sniff.clone());
+            }
+        }
+
+        // 2. Add "Fix all [sniff] issues" for each unique sniff type at cursor
+        for sniff in &seen_sniffs {
+            if let Ok(fixed_content) = self.run_phpcbf(&uri, &content, Some(sniff)).await {
+                if fixed_content != content {
+                    let line_count = content.lines().count() as u32;
+                    let last_line_len = content.lines().last().map(|l| l.len() as u32).unwrap_or(0);
+
+                    let edit = TextEdit {
+                        range: Range {
+                            start: Position { line: 0, character: 0 },
+                            end: Position { line: line_count, character: last_line_len },
+                        },
+                        new_text: fixed_content,
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+
+                    let workspace_edit = WorkspaceEdit {
+                        changes: Some(changes),
+                        document_changes: None,
+                        change_annotations: None,
+                    };
+
+                    // Get short sniff name (last part after last dot)
+                    let short_sniff = sniff.rsplit('.').next().unwrap_or(sniff);
+
+                    code_actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!("🛠️ Fix all {} issues", short_sniff),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: None,
+                        edit: Some(workspace_edit),
+                        command: None,
+                        is_preferred: Some(false),
+                        disabled: None,
+                        data: None,
+                    }));
+                }
+            }
+        }
+
+        // 3. Add "Fix all PHPCS issues" action (always available if file has fixable)
+        if let Ok(fixed_content) = self.run_phpcbf(&uri, &content, None).await {
+            if fixed_content != content {
+                let line_count = content.lines().count() as u32;
+                let last_line_len = content.lines().last().map(|l| l.len() as u32).unwrap_or(0);
+
+                let edit = TextEdit {
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: line_count, character: last_line_len },
+                    },
+                    new_text: fixed_content,
+                };
+
+                let mut changes = HashMap::new();
+                changes.insert(uri.clone(), vec![edit]);
+
+                let workspace_edit = WorkspaceEdit {
+                    changes: Some(changes),
+                    document_changes: None,
+                    change_annotations: None,
+                };
+
+                code_actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "🛠️ Fix all PHPCS issues (phpcbf)".to_string(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: None,
+                    edit: Some(workspace_edit),
+                    command: None,
+                    is_preferred: Some(true),
+                    disabled: None,
+                    data: None,
+                }));
+            }
+        }
+
+        eprintln!("✅ PHPCS LSP: Returning {} code actions for {}", code_actions.len(), file_name);
+        Ok(Some(code_actions))
     }
 }
 
