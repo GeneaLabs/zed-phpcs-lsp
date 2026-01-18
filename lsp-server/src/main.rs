@@ -16,7 +16,6 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use url::Url;
-use urlencoding;
 
 use tools::PhpTool;
 
@@ -1483,9 +1482,9 @@ impl LanguageServer for PhpcsLanguageServer {
         // 1. Add single-line fix actions for each fixable diagnostic at cursor
         for diag in &fixable_at_cursor {
             // Get the full message code (e.g., "Squiz.ControlStructures.ControlSignature.SpaceAfterCloseBrace")
-            let full_code = diag.code.as_ref().and_then(|c| match c {
-                tower_lsp::lsp_types::NumberOrString::String(s) => Some(s.clone()),
-                tower_lsp::lsp_types::NumberOrString::Number(n) => Some(n.to_string()),
+            let full_code = diag.code.as_ref().map(|c| match c {
+                tower_lsp::lsp_types::NumberOrString::String(s) => s.clone(),
+                tower_lsp::lsp_types::NumberOrString::Number(n) => n.to_string(),
             });
 
             // Extract sniff code (first 3 parts) from message code (4 parts)
