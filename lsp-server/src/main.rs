@@ -227,15 +227,7 @@ impl PhpcsLanguageServer {
     ) -> String {
         let display = tool.display_name();
 
-        // 1. Check user-configured path
-        if let Ok(user_guard) = user_path.read() {
-            if let Some(path) = &*user_guard {
-                eprintln!("🎯 PHPCS LSP: Using user-configured {} path: {}", display, path);
-                return path.clone();
-            }
-        }
-
-        // 2. Check cache
+        // Check cache first
         if let Ok(guard) = cache.read() {
             if let Some(cached_path) = &*guard {
                 eprintln!("📂 PHPCS LSP: Using cached {} path: {}", display, cached_path);
@@ -245,9 +237,17 @@ impl PhpcsLanguageServer {
 
         eprintln!("🔍 PHPCS LSP: Detecting {} path...", display);
 
-        // 3. Auto-detect and cache
+        // Gather inputs for detection
+        let user_path_val = user_path.read().ok().and_then(|guard| guard.clone());
         let workspace_root = self.workspace_root.read().ok().and_then(|guard| guard.clone());
-        let path = tools::detect_tool_path(tool, workspace_root.as_deref());
+
+        // Detect with full priority order:
+        // vendor/bin → user config → env var → system PATH → bundled PHAR
+        let path = tools::detect_tool_path(
+            tool,
+            workspace_root.as_deref(),
+            user_path_val.as_deref(),
+        );
 
         eprintln!("🎯 PHPCS LSP: Final {} path: {}", display, path);
 
@@ -997,6 +997,7 @@ impl LanguageServer for PhpcsLanguageServer {
                         ..Default::default()
                     },
                 )),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
                         code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
@@ -1616,6 +1617,65 @@ impl LanguageServer for PhpcsLanguageServer {
 
         eprintln!("✅ PHPCS LSP: Returning {} code actions for {}", code_actions.len(), file_name);
         Ok(Some(code_actions))
+    }
+
+    async fn formatting(
+        &self,
+        params: DocumentFormattingParams,
+    ) -> LspResult<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+        let file_name = uri.path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .unwrap_or("unknown");
+
+        eprintln!("📐 PHPCS LSP: Formatting requested for {}", file_name);
+
+        // Get document content from compressed store
+        let content = {
+            let docs = self.open_docs.read().map_err(|_| {
+                tower_lsp::jsonrpc::Error::internal_error()
+            })?;
+
+            if let Some(compressed_doc) = docs.get(&uri) {
+                self.decompress_document(compressed_doc).ok()
+            } else {
+                None
+            }
+        };
+
+        let Some(content) = content else {
+            eprintln!("❌ PHPCS LSP: No document content for formatting {}", file_name);
+            return Ok(None);
+        };
+
+        // Run phpcbf to fix all issues (no sniff filter)
+        match self.run_phpcbf(&uri, &content, None).await {
+            Ok(fixed_content) => {
+                if fixed_content == content {
+                    eprintln!("✅ PHPCS LSP: No formatting changes needed for {}", file_name);
+                    return Ok(Some(vec![]));
+                }
+
+                // Return a full-document replacement edit
+                let line_count = content.lines().count() as u32;
+                let last_line_len = content.lines().last().map(|l| l.len() as u32).unwrap_or(0);
+
+                let edit = TextEdit {
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: line_count, character: last_line_len },
+                    },
+                    new_text: fixed_content,
+                };
+
+                eprintln!("✅ PHPCS LSP: Formatting applied for {}", file_name);
+                Ok(Some(vec![edit]))
+            }
+            Err(e) => {
+                eprintln!("❌ PHPCS LSP: Formatting failed for {}: {}", file_name, e);
+                Ok(None)
+            }
+        }
     }
 }
 
