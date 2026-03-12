@@ -34,6 +34,13 @@ impl PhpTool {
             PhpTool::Phpcbf => "phpcbf.phar",
         }
     }
+
+    pub fn env_var_name(&self) -> &'static str {
+        match self {
+            PhpTool::Phpcs => "PHPCS_PATH",
+            PhpTool::Phpcbf => "PHPCBF_PATH",
+        }
+    }
 }
 
 /// Check if a command exists in the system PATH
@@ -57,11 +64,13 @@ pub fn command_exists(cmd: &str) -> bool {
 }
 
 /// Detect the path to a PHP tool using the following priority:
-/// 1. Project vendor/bin/{tool}
-/// 2. System {tool} (in PATH)
-/// 3. Bundled {tool}.phar
-/// 4. Fallback to tool name (will fail at runtime if not found)
-pub fn detect_tool_path(tool: PhpTool, workspace_root: Option<&Path>) -> String {
+/// 1. Project vendor/bin/{tool} (project-local Composer install)
+/// 2. User-configured path from LSP settings
+/// 3. Environment variable (PHPCS_PATH / PHPCBF_PATH)
+/// 4. System {tool} (in PATH)
+/// 5. Bundled {tool}.phar
+/// 6. Fallback to tool name (will fail at runtime if not found)
+pub fn detect_tool_path(tool: PhpTool, workspace_root: Option<&Path>, user_path: Option<&str>) -> String {
     let display = tool.display_name();
     let name = tool.name();
 
@@ -81,7 +90,26 @@ pub fn detect_tool_path(tool: PhpTool, workspace_root: Option<&Path>) -> String 
         eprintln!("❌ PHPCS LSP: No project-local {} found", display);
     }
 
-    // Priority 2: System command
+    // Priority 2: User-configured path
+    if let Some(path) = user_path {
+        if !path.trim().is_empty() {
+            eprintln!("🎯 PHPCS LSP: Using user-configured {} path: {}", display, path);
+            return path.to_string();
+        }
+    }
+
+    // Priority 3: Environment variable
+    let env_var = tool.env_var_name();
+    eprintln!("🔍 PHPCS LSP: Checking {} env var for {}...", env_var, display);
+    if let Ok(path) = std::env::var(env_var) {
+        if !path.trim().is_empty() {
+            eprintln!("✅ PHPCS LSP: Found {} via {} env var", display, env_var);
+            return path;
+        }
+    }
+    eprintln!("❌ PHPCS LSP: No {} env var set", env_var);
+
+    // Priority 4: System command
     eprintln!("🔍 PHPCS LSP: Checking for system {}...", name);
     if command_exists(name) {
         eprintln!("✅ PHPCS LSP: Found system {}", name);
@@ -89,7 +117,7 @@ pub fn detect_tool_path(tool: PhpTool, workspace_root: Option<&Path>) -> String 
     }
     eprintln!("❌ PHPCS LSP: No system {} found", name);
 
-    // Priority 3: Bundled PHAR
+    // Priority 5: Bundled PHAR
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
             let bundled = exe_dir.join(tool.phar_name());

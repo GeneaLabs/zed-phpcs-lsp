@@ -12,6 +12,7 @@ This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time c
 ## Features
 
 - **Real-time diagnostics** - See code style violations as you type
+- **Code formatting** - Format files with phpcbf via `Cmd+Shift+I` or format-on-save
 - **Zero configuration** - Works out of the box using PHPCS native defaults
 - **Live configuration** - Settings changes apply immediately without restart
 - **Auto-recovery** - Automatically handles deleted or invalid config files
@@ -262,6 +263,40 @@ If a config file becomes corrupted or references missing standards:
 - **Settings changes** - Applied immediately via `did_change_configuration`
 - **Workspace changes** - Config re-discovered when switching projects
 - **File system changes** - Config errors trigger automatic re-discovery
+
+## Formatting
+
+The extension supports code formatting via PHPCBF (PHP Code Beautifier and Fixer). When triggered, it runs `phpcbf` on the current file content and applies all fixable changes.
+
+### Enabling Format-on-Save
+
+Add the following to your Zed `settings.json` (`Cmd+,` or `Ctrl+,`):
+
+```json
+{
+  "languages": {
+    "PHP": {
+      "language_servers": ["intelephense", "phpcs", "!phpactor"],
+      "formatter": {
+        "language_server": {
+          "name": "phpcs"
+        }
+      },
+      "format_on_save": "on"
+    }
+  }
+}
+```
+
+> **Note:** Using `"name": "phpcs"` ensures Zed routes formatting to this extension rather than another language server like intelephense.
+
+You can also format manually with `Cmd+Shift+I` (macOS) or `Ctrl+Shift+I` (Linux/Windows).
+
+### How It Works
+
+- Formatting uses the same coding standard as linting (phpcs.xml discovery, Zed settings, etc.)
+- PHPCBF is discovered automatically using the same priority as PHPCS: project `vendor/bin` → user-configured path → `PHPCBF_PATH` env var → system PATH → bundled PHAR
+- Formatting and linting run from the same LSP process — no extra configuration needed
 
 ## Troubleshooting
 
