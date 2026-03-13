@@ -3,7 +3,7 @@ name = "PHPCS"
 version = "0.3.0"
 schema_version = 1
 authors = ["Mike Bronner <mike@genealabs.com>"]
-description = "PHP CodeSniffer Language Server for linting PHP code. We are looking for feedback, especially for Windows and Linux platforms."
+description = "PHP CodeSniffer Language Server for linting, formatting, and auto-fixing PHP code via PHPCS and PHPCBF."
 repository = "https://github.com/GeneaLabs/zed-phpcs-lsp"
 
 [lib]

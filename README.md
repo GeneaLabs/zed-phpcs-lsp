@@ -7,12 +7,12 @@
 [![Zed](https://img.shields.io/badge/Zed-Editor-blue?logo=zed&logoColor=white)](https://zed.dev)
 [![PHPCS](https://img.shields.io/badge/PHPCS-3.13.2%2B-green)](https://github.com/PHPCSStandards/PHP_CodeSniffer)
 
-This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time code style checking. It highlights violations as you code and supports various PHP coding standards including PSR-12, custom rulesets, and project-specific configurations.
+This extension integrates PHP_CodeSniffer with Zed Editor to provide real-time code style checking and automatic formatting. It highlights violations as you code, auto-fixes them on save via PHPCBF, and supports various PHP coding standards including PSR-12, custom rulesets, and project-specific configurations.
 
 ## Features
 
 - **Real-time diagnostics** - See code style violations as you type
-- **Code formatting** - Format files with phpcbf via `Cmd+Shift+I` or format-on-save
+- **Auto-fix on save** - Automatically fix all PHPCS issues on save via `source.fixAll.phpcs`
 - **Zero configuration** - Works out of the box using PHPCS native defaults
 - **Live configuration** - Settings changes apply immediately without restart
 - **Auto-recovery** - Automatically handles deleted or invalid config files
@@ -68,6 +68,24 @@ if ($x === 1) {
     echo "test";
 }
 ```
+
+4. **Enable auto-fix on save** (optional) to fix all PHPCS issues when you save:
+
+```json
+{
+  "languages": {
+    "PHP": {
+      "code_actions_on_format": {
+        "source.fixAll.phpcs": true
+      },
+      "formatter": [],
+      "format_on_save": "on"
+    }
+  }
+}
+```
+
+> **Note:** This runs PHPCBF on every save, automatically fixing all fixable code style issues. The `"formatter": []` is required to prevent Zed's default formatter from interfering. See the [Auto-Fix on Save](#auto-fix-on-save) section for more configuration options.
 
 ## Configuration
 
@@ -170,11 +188,13 @@ export PHPCBF_PATH="/custom/path/to/phpcbf"
 <details>
 <summary><strong>Automatic Discovery</strong> (recommended)</summary>
 
-The extension finds PHPCS in this priority order:
+The extension finds PHPCS and PHPCBF in this priority order:
 
 1. **Project composer** - `vendor/bin/phpcs` (includes project dependencies like Slevomat)
-2. **System PATH** - Global phpcs installation (respects your `phpcs --config-set` settings)
-3. **Bundled PHAR** - Modern PHPCS v3.13.2+ (fallback, included with extension)
+2. **User-configured path** - Custom path from Zed LSP settings
+3. **Environment variable** - `PHPCS_PATH` / `PHPCBF_PATH`
+4. **System PATH** - Global phpcs installation (respects your `phpcs --config-set` settings)
+5. **Bundled PHAR** - Modern PHPCS v3.13.2+ (fallback, included with extension)
 
 > **💡 Global Config Support:** The extension now respects your system PHPCS configuration. Set global defaults with `phpcs --config-set default_standard PSR12` or `phpcs --config-set installed_paths /path/to/sniffs` and they'll work automatically without any Zed configuration.
 
@@ -264,22 +284,59 @@ If a config file becomes corrupted or references missing standards:
 - **Workspace changes** - Config re-discovered when switching projects
 - **File system changes** - Config errors trigger automatic re-discovery
 
-## Formatting
+## Auto-Fix on Save
 
-The extension supports code formatting via PHPCBF (PHP Code Beautifier and Fixer). When triggered, it runs `phpcbf` on the current file content and applies all fixable changes.
+The extension supports automatic fixing of code style issues via PHPCBF (PHP Code Beautifier and Fixer), using the `source.fixAll.phpcs` code action. This follows the same convention used by ESLint, Biome, and Ruff.
 
-### Enabling Format-on-Save
-
-Add the following to your Zed `settings.json` (`Cmd+,` or `Ctrl+,`):
+### PHPCS Fixes Only
 
 ```json
 {
   "languages": {
     "PHP": {
-      "language_servers": ["intelephense", "phpcs", "!phpactor"],
+      "code_actions_on_format": {
+        "source.fixAll.phpcs": true
+      },
+      "formatter": [],
+      "format_on_save": "on"
+    }
+  }
+}
+```
+
+### All Linter Fixes
+
+Fix issues from PHPCS and any other linters that support `source.fixAll`:
+
+```json
+{
+  "languages": {
+    "PHP": {
+      "code_actions_on_format": {
+        "source.fixAll": true
+      },
+      "formatter": [],
+      "format_on_save": "on"
+    }
+  }
+}
+```
+
+### Combine with a Separate Formatter
+
+Use PHPCS fixing alongside a separate formatter (e.g., Prettier for embedded HTML/JS):
+
+```json
+{
+  "languages": {
+    "PHP": {
+      "code_actions_on_format": {
+        "source.fixAll.phpcs": true
+      },
       "formatter": {
-        "language_server": {
-          "name": "phpcs"
+        "external": {
+          "command": "prettier",
+          "arguments": ["--stdin-filepath", "{buffer_path}"]
         }
       },
       "format_on_save": "on"
@@ -288,15 +345,14 @@ Add the following to your Zed `settings.json` (`Cmd+,` or `Ctrl+,`):
 }
 ```
 
-> **Note:** Using `"name": "phpcs"` ensures Zed routes formatting to this extension rather than another language server like intelephense.
-
-You can also format manually with `Cmd+Shift+I` (macOS) or `Ctrl+Shift+I` (Linux/Windows).
+> **Important:** When using `code_actions_on_format` without a separate formatter, you must set `"formatter": []` to prevent Zed's default `"auto"` formatter from interfering. See [zed-industries/zed#51490](https://github.com/zed-industries/zed/issues/51490) for details.
 
 ### How It Works
 
-- Formatting uses the same coding standard as linting (phpcs.xml discovery, Zed settings, etc.)
+- Auto-fixing uses the same coding standard as linting (phpcs.xml discovery, Zed settings, etc.)
 - PHPCBF is discovered automatically using the same priority as PHPCS: project `vendor/bin` → user-configured path → `PHPCBF_PATH` env var → system PATH → bundled PHAR
-- Formatting and linting run from the same LSP process — no extra configuration needed
+- Auto-fixing and linting run from the same LSP process — no extra configuration needed
+- The `source.fixAll.phpcs` code action is also available in the lightbulb menu for manual use
 
 ## Troubleshooting
 

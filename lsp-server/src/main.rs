@@ -67,6 +67,9 @@ struct PhpcsLanguageServer {
     workspace_root: std::sync::Arc<std::sync::RwLock<Option<std::path::PathBuf>>>,
     // Limit concurrent PHPCS processes to prevent system overload
     process_semaphore: std::sync::Arc<Semaphore>,
+    // Track when we last returned a fixAll edit per URI to prevent duplicate edits
+    // After returning an edit, skip all fixAll requests for that URI for a cooldown period
+    fix_all_cooldown: std::sync::Arc<std::sync::RwLock<HashMap<Url, Instant>>>,
 }
 
 /// Generate a documentation URL for a PHPCS sniff based on its source identifier.
@@ -136,11 +139,11 @@ impl PhpcsLanguageServer {
             workspace_root: std::sync::Arc::new(std::sync::RwLock::new(None)),
             // Limit to 4 concurrent PHPCS processes to avoid overwhelming the system
             process_semaphore: std::sync::Arc::new(Semaphore::new(4)),
+            fix_all_cooldown: std::sync::Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
     }
 
     fn compress_document(&self, content: &str) -> CompressedDocument {
-        let start = Instant::now();
         let original_size = content.len();
 
         // Use LZ4 for fast compression
@@ -152,14 +155,6 @@ impl PhpcsLanguageServer {
         let mut hasher = Sha256::new();
         hasher.update(content.as_bytes());
         let checksum = format!("{:x}", hasher.finalize());
-
-        let elapsed = start.elapsed();
-        eprintln!("📦 PHPCS LSP: Compressed in {:.2}ms: {}KB → {}KB ({:.1}% ratio)",
-            elapsed.as_secs_f64() * 1000.0,
-            original_size / 1024,
-            compressed_size / 1024,
-            compression_ratio * 100.0
-        );
 
         // Update memory tracking
         self.total_memory_usage.fetch_add(compressed_size, Ordering::Relaxed);
@@ -173,51 +168,16 @@ impl PhpcsLanguageServer {
     }
 
     fn decompress_document(&self, doc: &CompressedDocument) -> Result<String> {
-        let start = Instant::now();
         let decompressed = decompress_size_prepended(&doc.compressed_data)
             .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
 
         let content = String::from_utf8(decompressed)
             .map_err(|e| anyhow::anyhow!("UTF-8 conversion failed: {}", e))?;
 
-        let elapsed = start.elapsed();
-        if elapsed.as_millis() > 5 {
-            eprintln!("⚠️ PHPCS LSP: Slow decompression: {:.2}ms for {}KB",
-                elapsed.as_secs_f64() * 1000.0,
-                doc.original_size / 1024
-            );
-        }
-
         Ok(content)
     }
 
-    fn get_memory_usage_mb(&self) -> f32 {
-        self.total_memory_usage.load(Ordering::Relaxed) as f32 / 1_048_576.0
-    }
 
-    fn log_memory_stats(&self) {
-        if let Ok(docs) = self.open_docs.read() {
-            let doc_count = docs.len();
-            let total_original: usize = docs.values().map(|d| d.original_size).sum();
-            let total_compressed: usize = docs.values().map(|d| d.compressed_data.len()).sum();
-            let avg_ratio = if doc_count > 0 {
-                docs.values().map(|d| d.compression_ratio).sum::<f32>() / doc_count as f32
-            } else {
-                0.0
-            };
-
-            eprintln!("📊 PHPCS LSP Memory Stats:");
-            eprintln!("  📁 Documents: {}", doc_count);
-            eprintln!("  💾 Compressed: {:.1}MB (from {:.1}MB original)",
-                total_compressed as f32 / 1_048_576.0,
-                total_original as f32 / 1_048_576.0
-            );
-            eprintln!("  📉 Average compression: {:.1}%", avg_ratio * 100.0);
-            eprintln!("  🗄️ Results cached: {}",
-                self.results_cache.read().map(|c| c.len()).unwrap_or(0)
-            );
-        }
-    }
 
     fn get_tool_path(
         &self,
@@ -230,7 +190,6 @@ impl PhpcsLanguageServer {
         // Check cache first
         if let Ok(guard) = cache.read() {
             if let Some(cached_path) = &*guard {
-                eprintln!("📂 PHPCS LSP: Using cached {} path: {}", display, cached_path);
                 return cached_path.clone();
             }
         }
@@ -296,8 +255,11 @@ impl PhpcsLanguageServer {
             if let Some(ref standard) = *standard_guard {
                 if !((standard.starts_with('/') || standard.starts_with("./") || standard.ends_with(".xml"))
                     && !std::path::Path::new(standard).exists()) {
+                    eprintln!("📏 PHPCS LSP: phpcbf using standard: {}", standard);
                     cmd.arg(format!("--standard={}", standard));
                 }
+            } else {
+                eprintln!("📏 PHPCS LSP: phpcbf using PHPCS defaults (no standard configured)");
             }
         }
 
@@ -340,11 +302,6 @@ impl PhpcsLanguageServer {
         // 3+ = Processing error
         let exit_code = output.status.code().unwrap_or(-1);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout_len = output.stdout.len();
-
-        eprintln!("📊 PHPCS LSP: phpcbf exit code: {}, stdout: {} bytes, stderr: {}",
-            exit_code, stdout_len, if stderr.is_empty() { "(empty)" } else { &stderr });
-
         if exit_code > 2 {
             eprintln!("❌ PHPCS LSP: phpcbf error (exit {}): {}", exit_code, stderr);
             return Err(anyhow::anyhow!("phpcbf failed with exit code {}: {}", exit_code, stderr));
@@ -448,11 +405,8 @@ impl PhpcsLanguageServer {
         eprintln!("🔍 PHPCS LSP: Starting lint for file: {}", file_name);
         
         // Acquire semaphore permit to limit concurrent PHPCS processes
-        let available_permits = self.process_semaphore.available_permits();
         let _permit = self.process_semaphore.acquire().await
             .map_err(|e| anyhow::anyhow!("Failed to acquire process semaphore: {}", e))?;
-        eprintln!("🎫 PHPCS LSP: Acquired process slot for {} (slots in use: {}/4)", 
-            file_name, 4 - available_permits);
         
         // Use cached PHPCS path
         let phpcs_path = self.get_phpcs_path();
@@ -464,8 +418,6 @@ impl PhpcsLanguageServer {
         }
 
         let text = content.unwrap();
-        eprintln!("📝 PHPCS LSP: Content size: {} bytes", text.len());
-
         let mut cmd = ProcessCommand::new(&phpcs_path);
         cmd.arg("--report=json")
            .arg("--no-colors")
@@ -576,9 +528,6 @@ impl PhpcsLanguageServer {
         
         // Permit is automatically released when it goes out of scope
         drop(_permit);
-        let available_after = self.process_semaphore.available_permits();
-        eprintln!("🎫 PHPCS LSP: Released process slot for {} (slots available: {}/4)", 
-            file_name, available_after);
         
         let diagnostics = self.parse_phpcs_output(&raw_output, uri).await?;
 
@@ -997,10 +946,12 @@ impl LanguageServer for PhpcsLanguageServer {
                         ..Default::default()
                     },
                 )),
-                document_formatting_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
-                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        code_action_kinds: Some(vec![
+                            CodeActionKind::QUICKFIX,
+                            CodeActionKind::new("source.fixAll.phpcs"),
+                        ]),
                         resolve_provider: Some(false),
                         ..Default::default()
                     },
@@ -1052,10 +1003,6 @@ impl LanguageServer for PhpcsLanguageServer {
             if let Some(doc) = docs.remove(&uri) {
                 let freed_memory = doc.compressed_data.len();
                 self.total_memory_usage.fetch_sub(freed_memory, Ordering::Relaxed);
-                eprintln!("🗑️ PHPCS LSP: Closed file, freed {}KB, total memory: {:.1}MB",
-                    freed_memory / 1024,
-                    self.get_memory_usage_mb()
-                );
             }
         }
 
@@ -1183,12 +1130,6 @@ impl LanguageServer for PhpcsLanguageServer {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text;
 
-        let file_name = uri.path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .unwrap_or("unknown");
-
-        eprintln!("📂 PHPCS LSP: File opened: {} ({} bytes)", file_name, text.len());
-
         // Compress and store the document
         let compressed_doc = self.compress_document(&text);
 
@@ -1196,24 +1137,11 @@ impl LanguageServer for PhpcsLanguageServer {
             let mut docs = self.open_docs.write().unwrap();
             docs.insert(uri.clone(), compressed_doc);
 
-            // Log memory stats on significant changes
-            if docs.len().is_multiple_of(25) {
-                drop(docs); // Release lock before logging
-                self.log_memory_stats();
-            }
         }
 
         // Invalidate any cached results for this file
         if let Ok(mut cache) = self.results_cache.write() {
             cache.remove(&uri);
-        }
-
-        // Log memory stats periodically (every 10 files)
-        if let Ok(docs) = self.open_docs.read() {
-            if docs.len() % 10 == 0 {
-                drop(docs); // Release lock before logging
-                self.log_memory_stats();
-            }
         }
     }
 
@@ -1249,16 +1177,8 @@ impl LanguageServer for PhpcsLanguageServer {
         // This reduces unnecessary PHPCS runs during rapid typing
     }
 
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let uri = params.text_document.uri;
-
-        let file_name = uri.path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .unwrap_or("unknown");
-
-        eprintln!("💾 PHPCS LSP: File saved: {}", file_name);
-
-        // Note: Diagnostics will be provided via diagnostic() method calls from Zed
+    async fn did_save(&self, _params: DidSaveTextDocumentParams) {
+        // Diagnostics will be provided via diagnostic() method calls from Zed
         // We don't need to proactively run PHPCS here to avoid duplicate linting
     }
 
@@ -1276,15 +1196,9 @@ impl LanguageServer for PhpcsLanguageServer {
                 // First check if we have cached results
                 if let Ok(cache) = self.results_cache.read() {
                     if let Some(cached) = cache.get(&uri) {
-                        eprintln!("⚡ PHPCS LSP: Using cached results for {} (age: {:.1}s)",
-                            file_name,
-                            cached.generated_at.elapsed().as_secs_f64()
-                        );
-
                         // Check if client has the same version
                         if let Some(previous_result_id) = params.previous_result_id {
                             if previous_result_id == cached.result_id {
-                                eprintln!("✅ PHPCS LSP: Client has current version for {}", file_name);
                                 return Ok(DocumentDiagnosticReportResult::Report(
                                     DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
                                         unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
@@ -1408,7 +1322,14 @@ impl LanguageServer for PhpcsLanguageServer {
             .and_then(|mut segments| segments.next_back())
             .unwrap_or("unknown");
 
-        eprintln!("💡 PHPCS LSP: Code action requested for {}", file_name);
+        // Check if this is a source.fixAll request (e.g., from code_actions_on_format)
+        // Only match exact "source.fixAll" or "source.fixAll.phpcs", not broad kinds like "" or "source"
+        let is_fix_all_request = params.context.only.as_ref().map_or(false, |kinds| {
+            kinds.iter().any(|k| {
+                let kind_str = k.as_str();
+                kind_str == "source.fixAll" || kind_str == "source.fixAll.phpcs"
+            })
+        });
 
         // Get the document content first
         let content = {
@@ -1427,6 +1348,74 @@ impl LanguageServer for PhpcsLanguageServer {
             eprintln!("❌ PHPCS LSP: No document content for {}", file_name);
             return Ok(Some(vec![]));
         };
+
+        // Handle source.fixAll.phpcs requests (from code_actions_on_format)
+        if is_fix_all_request {
+            eprintln!("🔧 PHPCS LSP: source.fixAll.phpcs requested for {}", file_name);
+
+            // Deduplicate: after returning a fixAll edit, skip all requests for this URI
+            // for a cooldown period to prevent multiple conflicting edits
+            if let Ok(cooldown) = self.fix_all_cooldown.read() {
+                if let Some(sent_at) = cooldown.get(&uri) {
+                    if sent_at.elapsed() < Duration::from_secs(5) {
+                        eprintln!("⏭️ PHPCS LSP: Skipping source.fixAll.phpcs for {} (cooldown, {:.1}s since last edit)", file_name, sent_at.elapsed().as_secs_f64());
+                        return Ok(Some(vec![]));
+                    }
+                }
+            }
+
+            match self.run_phpcbf(&uri, &content, None).await {
+                Ok(fixed_content) => {
+                    if fixed_content == content {
+                        eprintln!("✅ PHPCS LSP: No fixable issues for {}", file_name);
+                        return Ok(Some(vec![]));
+                    }
+
+                    // Start cooldown to prevent duplicate edits
+                    if let Ok(mut cooldown) = self.fix_all_cooldown.write() {
+                        cooldown.insert(uri.clone(), Instant::now());
+                    }
+
+                    let line_count = content.lines().count() as u32;
+                    let last_line_len = content.lines().last().map(|l| l.len() as u32).unwrap_or(0);
+
+                    let edit = TextEdit {
+                        range: Range {
+                            start: Position { line: 0, character: 0 },
+                            end: Position { line: line_count, character: last_line_len },
+                        },
+                        new_text: fixed_content,
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+
+                    let workspace_edit = WorkspaceEdit {
+                        changes: Some(changes),
+                        document_changes: None,
+                        change_annotations: None,
+                    };
+
+                    let action = CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Fix all PHPCS issues".to_string(),
+                        kind: Some(CodeActionKind::new("source.fixAll.phpcs")),
+                        diagnostics: None,
+                        edit: Some(workspace_edit),
+                        command: None,
+                        is_preferred: Some(true),
+                        disabled: None,
+                        data: None,
+                    });
+
+                    eprintln!("✅ PHPCS LSP: Returning source.fixAll.phpcs action for {}", file_name);
+                    return Ok(Some(vec![action]));
+                }
+                Err(e) => {
+                    eprintln!("❌ PHPCS LSP: source.fixAll.phpcs failed for {}: {}", file_name, e);
+                    return Ok(Some(vec![]));
+                }
+            }
+        }
 
         // Check if any diagnostics in the ENTIRE file are fixable
         let file_has_fixable = {
@@ -1447,22 +1436,10 @@ impl LanguageServer for PhpcsLanguageServer {
         };
 
         if !file_has_fixable {
-            eprintln!("ℹ️ PHPCS LSP: No fixable diagnostics in file");
             return Ok(Some(vec![]));
         }
 
         let mut code_actions: Vec<CodeActionOrCommand> = Vec::new();
-
-        // Debug: log all diagnostics received
-        eprintln!("💡 PHPCS LSP: Received {} diagnostics at cursor", params.context.diagnostics.len());
-        for (i, diag) in params.context.diagnostics.iter().enumerate() {
-            eprintln!("  📋 Diag {}: source={:?}, code={:?}, fixable={:?}",
-                i,
-                diag.source,
-                diag.code,
-                diag.data.as_ref().and_then(|d| d.get("fixable"))
-            );
-        }
 
         // Collect fixable diagnostics at cursor position
         let fixable_at_cursor: Vec<_> = params.context.diagnostics.iter()
@@ -1474,8 +1451,6 @@ impl LanguageServer for PhpcsLanguageServer {
                     .unwrap_or(false)
             })
             .collect();
-
-        eprintln!("💡 PHPCS LSP: Found {} fixable diagnostics at cursor", fixable_at_cursor.len());
 
         // Track unique sniff types for "Fix all X issues" actions
         let mut seen_sniffs: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1619,64 +1594,6 @@ impl LanguageServer for PhpcsLanguageServer {
         Ok(Some(code_actions))
     }
 
-    async fn formatting(
-        &self,
-        params: DocumentFormattingParams,
-    ) -> LspResult<Option<Vec<TextEdit>>> {
-        let uri = params.text_document.uri;
-        let file_name = uri.path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .unwrap_or("unknown");
-
-        eprintln!("📐 PHPCS LSP: Formatting requested for {}", file_name);
-
-        // Get document content from compressed store
-        let content = {
-            let docs = self.open_docs.read().map_err(|_| {
-                tower_lsp::jsonrpc::Error::internal_error()
-            })?;
-
-            if let Some(compressed_doc) = docs.get(&uri) {
-                self.decompress_document(compressed_doc).ok()
-            } else {
-                None
-            }
-        };
-
-        let Some(content) = content else {
-            eprintln!("❌ PHPCS LSP: No document content for formatting {}", file_name);
-            return Ok(None);
-        };
-
-        // Run phpcbf to fix all issues (no sniff filter)
-        match self.run_phpcbf(&uri, &content, None).await {
-            Ok(fixed_content) => {
-                if fixed_content == content {
-                    eprintln!("✅ PHPCS LSP: No formatting changes needed for {}", file_name);
-                    return Ok(Some(vec![]));
-                }
-
-                // Return a full-document replacement edit
-                let line_count = content.lines().count() as u32;
-                let last_line_len = content.lines().last().map(|l| l.len() as u32).unwrap_or(0);
-
-                let edit = TextEdit {
-                    range: Range {
-                        start: Position { line: 0, character: 0 },
-                        end: Position { line: line_count, character: last_line_len },
-                    },
-                    new_text: fixed_content,
-                };
-
-                eprintln!("✅ PHPCS LSP: Formatting applied for {}", file_name);
-                Ok(Some(vec![edit]))
-            }
-            Err(e) => {
-                eprintln!("❌ PHPCS LSP: Formatting failed for {}: {}", file_name, e);
-                Ok(None)
-            }
-        }
-    }
 }
 
 #[tokio::main]
