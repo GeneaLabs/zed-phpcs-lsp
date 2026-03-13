@@ -36,16 +36,13 @@ struct PhpcsSettings {
 #[derive(Debug, Clone)]
 struct CompressedDocument {
     compressed_data: Vec<u8>,
-    original_size: usize,
     checksum: String,
-    compression_ratio: f32,
 }
 
 #[derive(Debug, Clone)]
 struct CachedResults {
     diagnostics: Vec<Diagnostic>,
     result_id: String,
-    generated_at: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -144,12 +141,9 @@ impl PhpcsLanguageServer {
     }
 
     fn compress_document(&self, content: &str) -> CompressedDocument {
-        let original_size = content.len();
-
         // Use LZ4 for fast compression
         let compressed_data = compress_prepend_size(content.as_bytes());
         let compressed_size = compressed_data.len();
-        let compression_ratio = compressed_size as f32 / original_size as f32;
 
         // Compute checksum for cache invalidation
         let mut hasher = Sha256::new();
@@ -161,9 +155,7 @@ impl PhpcsLanguageServer {
 
         CompressedDocument {
             compressed_data,
-            original_size,
             checksum,
-            compression_ratio,
         }
     }
 
@@ -1279,7 +1271,6 @@ impl LanguageServer for PhpcsLanguageServer {
                         let cached_results = CachedResults {
                             diagnostics: diagnostics.clone(),
                             result_id: version_id.clone(),
-                            generated_at: Instant::now(),
                         };
 
                         if let Ok(mut cache) = self.results_cache.write() {
@@ -1324,7 +1315,7 @@ impl LanguageServer for PhpcsLanguageServer {
 
         // Check if this is a source.fixAll request (e.g., from code_actions_on_format)
         // Only match exact "source.fixAll" or "source.fixAll.phpcs", not broad kinds like "" or "source"
-        let is_fix_all_request = params.context.only.as_ref().map_or(false, |kinds| {
+        let is_fix_all_request = params.context.only.as_ref().is_some_and(|kinds| {
             kinds.iter().any(|k| {
                 let kind_str = k.as_str();
                 kind_str == "source.fixAll" || kind_str == "source.fixAll.phpcs"
