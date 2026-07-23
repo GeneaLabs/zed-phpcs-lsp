@@ -222,6 +222,29 @@ pub fn plan_spawn(tool_path: &str, is_windows: bool) -> SpawnPlan {
     }
 }
 
+/// Whether a freshly-computed PHPCS result may be written to the results cache.
+///
+/// `run_phpcs` executes behind a semaphore while tower-lsp dispatches diagnostic
+/// requests concurrently, so a slow lint of an older document version can finish
+/// *after* a fast lint of a newer one. The result is only safe to cache when the
+/// content it was computed against (`linted_checksum`) still matches the
+/// document's current checksum (`current_checksum`); otherwise the document
+/// changed mid-lint and the result is stale — dropping it leaves the fresher
+/// cache entry intact instead of clobbering it with old diagnostics.
+pub fn should_store_result(current_checksum: &str, linted_checksum: &str) -> bool {
+    current_checksum == linted_checksum
+}
+
+/// Whether an incoming configuration value actually differs from the stored one.
+///
+/// A `did_change_configuration` notification may merely restate the current
+/// settings; treating that no-op as a change would needlessly wipe caches and
+/// force redundant re-lints. `None` (unset) versus any concrete value counts as
+/// a change, so the first time a value is set is detected correctly.
+pub fn value_changed(old: Option<&str>, new: &str) -> bool {
+    old != Some(new)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +345,32 @@ mod tests {
             plan_spawn(r"C:\t\phpcs.Phar", true),
             via_php(r"C:\t\phpcs.Phar")
         );
+    }
+
+    #[test]
+    fn stores_result_when_checksum_still_current() {
+        // The version PHPCS linted is still the document's current version — cache it.
+        assert!(should_store_result("abc123", "abc123"));
+    }
+
+    #[test]
+    fn drops_result_when_document_changed_during_lint() {
+        // The document moved on while PHPCS ran — the result is stale, drop it so a
+        // fresher cache entry is not overwritten.
+        assert!(!should_store_result("newchecksum", "oldchecksum"));
+    }
+
+    #[test]
+    fn value_changed_detects_a_real_change() {
+        // A different value, or the first time a value is set, is a real change.
+        assert!(value_changed(Some("PSR12"), "PSR2"));
+        assert!(value_changed(None, "PSR12"));
+    }
+
+    #[test]
+    fn value_changed_ignores_a_restated_value() {
+        // Re-sending the same standard must not count as a change.
+        assert!(!value_changed(Some("PSR12"), "PSR12"));
     }
 
     #[test]

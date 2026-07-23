@@ -1231,6 +1231,7 @@ impl LanguageServer for PhpcsLanguageServer {
         eprintln!("🔄 PHPCS LSP: Configuration change detected!");
 
         let mut path_changed = false;
+        let mut standard_changed = false;
 
         // Parse the settings
         if let Some(settings) = params.settings.as_object() {
@@ -1247,6 +1248,9 @@ impl LanguageServer for PhpcsLanguageServer {
                             new_standard
                         );
                         if let Ok(mut standard_guard) = self.standard.write() {
+                            if tools::value_changed(standard_guard.as_deref(), &new_standard) {
+                                standard_changed = true;
+                            }
                             *standard_guard = Some(new_standard);
                         }
                     }
@@ -1284,6 +1288,9 @@ impl LanguageServer for PhpcsLanguageServer {
             if let Some(standard_value) = settings.get("standard") {
                 if let Some(new_standard) = standard_value.as_str() {
                     if let Ok(mut standard_guard) = self.standard.write() {
+                        if tools::value_changed(standard_guard.as_deref(), new_standard) {
+                            standard_changed = true;
+                        }
                         *standard_guard = Some(new_standard.to_string());
                     }
                 }
@@ -1327,10 +1334,17 @@ impl LanguageServer for PhpcsLanguageServer {
             }
         }
 
-        // Clear results cache to force re-linting with new config
-        if let Ok(mut cache) = self.results_cache.write() {
-            cache.clear();
-            eprintln!("🗑️ PHPCS LSP: Cleared results cache after config change");
+        // Clear the results cache only when the effective config actually changed.
+        // Cached diagnostics depend on the resolved tool path and the active
+        // standard, so a real change to either invalidates them — but a no-op
+        // notification that merely restates the current settings must not wipe the
+        // cache and force redundant re-lints.
+        let config_changed = path_changed || standard_changed;
+        if config_changed {
+            if let Ok(mut cache) = self.results_cache.write() {
+                cache.clear();
+                eprintln!("🗑️ PHPCS LSP: Cleared results cache after config change");
+            }
         }
 
         // Note: Documents will be re-linted on next diagnostic() call
@@ -1502,14 +1516,36 @@ impl LanguageServer for PhpcsLanguageServer {
                             file_name
                         );
 
-                        // Cache the results
-                        let cached_results = CachedResults {
-                            diagnostics: diagnostics.clone(),
-                            result_id: version_id.clone(),
+                        // Cache the results — but only if this lint still reflects
+                        // the document's current content. run_phpcs runs behind a
+                        // semaphore while diagnostic requests dispatch concurrently,
+                        // so a slow lint of an older version can finish after a fast
+                        // lint of a newer one; writing it anyway would clobber the
+                        // fresher entry with stale diagnostics (the "stuck results"
+                        // bug). Re-read the current checksum and gate the write.
+                        let current_checksum = {
+                            let docs = self.open_docs.read().unwrap();
+                            docs.get(&uri).map(|doc| doc.checksum.clone())
                         };
 
-                        if let Ok(mut cache) = self.results_cache.write() {
-                            cache.insert(uri.clone(), cached_results);
+                        let store = current_checksum.as_deref().is_some_and(|current| {
+                            tools::should_store_result(current, &version_id)
+                        });
+
+                        if store {
+                            let cached_results = CachedResults {
+                                diagnostics: diagnostics.clone(),
+                                result_id: version_id.clone(),
+                            };
+
+                            if let Ok(mut cache) = self.results_cache.write() {
+                                cache.insert(uri.clone(), cached_results);
+                            }
+                        } else {
+                            eprintln!(
+                                "🗑️ PHPCS LSP: Dropped stale PHPCS result for {} (document changed during lint)",
+                                file_name
+                            );
                         }
 
                         return Ok(DocumentDiagnosticReportResult::Report(
