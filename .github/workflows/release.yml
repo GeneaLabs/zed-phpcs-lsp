@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
         new_version: ${{ steps.extract_version.outputs.version }}
+        new_commit_sha: ${{ steps.commit_changes.outputs.new_commit_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -166,6 +167,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.update-version.outputs.new_commit_sha }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -266,7 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ needs.update-version.outputs.new_commit_sha }}
 
       - name: Publish to zed-industries/extensions
         uses: ./.github/actions/publish-zed-extension
